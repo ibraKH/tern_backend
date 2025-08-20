@@ -1,0 +1,1 @@
+// This is a TypeScript file for database connection setup
