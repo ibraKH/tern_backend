@@ -1,1 +1,6 @@
-// This is a TypeScript file for database connection setup
+import express, { Request, Response } from 'express';
+import pool from '../database';
+
+const router = express.Router();
+
+export default router;
