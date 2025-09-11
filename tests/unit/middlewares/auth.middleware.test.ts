@@ -1,0 +1,1 @@
+// Here a test file for the auth middleware is expected.
