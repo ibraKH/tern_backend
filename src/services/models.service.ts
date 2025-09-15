@@ -1,21 +1,21 @@
 import pool from '../config/database';
 
 
-// 获取所有模型名字
+// Get all model names
 export async function getAllModels() {
   const client = await pool.connect();
   try {
     const result = await client.query(
       `SELECT stm_name FROM stmmodel ORDER BY stm_name`
     );
-    // 只返回名字数组
+    // Only return the names as an array of strings
     return result.rows.map(r => r.stm_name);
   } finally {
     client.release();
   }
 }
 
-// 根据名字获取模型详情
+// Get model details by name, including states and transitions
 export async function getModelByName(name: string) {
   const client = await pool.connect();
   try {
