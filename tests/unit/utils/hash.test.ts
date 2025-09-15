@@ -1,0 +1,1 @@
+// Here a test file for the hash is expected.

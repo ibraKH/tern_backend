@@ -1,23 +1,8 @@
-import express, { Request, Response } from 'express';
-import bodyParser from 'body-parser';
-import services from './routers/services';
-import cors from "cors";
+import 'dotenv/config';
+import app from './app';
 
-const corsOptions = {origin: "*"};
-const app = express();
+const PORT = process.env.PORT || 3000;
 
-app.use(cors(corsOptions));
-app.use(bodyParser.urlencoded({ extended: false }))
-app.use(bodyParser.json())
-
-app.use('/api', services);
-
-const port = 3004;
-
-app.use((req: Request, res: Response) => {
-  res.status(404).send('Page not found');
+app.listen(PORT, () => {
+  console.log(`[server] running on ${PORT}`);
 });
-
-app.listen(port, (): void => console.log(`Listening on port : ${port}`));
-
-export default app;
