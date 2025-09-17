@@ -192,7 +192,7 @@ export async function saveModel(modelData: BMRGData) {
             VALUES ($1, $2, $3, $4)`,
             [
               transition.transition_id,
-              chain.chain_part,// will match ENUM
+              chain.chain_part,// will match ENUM in DB
               driver.driver,
               driverId
             ]
@@ -200,7 +200,7 @@ export async function saveModel(modelData: BMRGData) {
         }
       }
 
-
+    }
     // 5. Save method_alignment（only stm_name for now)
     if (method_alignment) {
       await client.query(
