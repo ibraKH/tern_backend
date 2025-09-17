@@ -9,13 +9,13 @@ models.get("/", (req: Request, res: Response) => {
 
 
 // POST route for saving a model
-models.post('/', async (req: Request, res: Response) => {
+models.post('/save', async (req, res) => {
   try {
-    const modelData = req.body;
-    const saved = await saveModel(modelData);
-    res.json({ message: 'Model saved successfully', data: saved });
+    const modelId = await saveModel(req.body);
+    res.status(201).json({ success: true, modelId });
   } catch (error) {
-    res.status(500).json({ message: 'Error saving model', error });
+    console.error('Error saving model:', error);
+    res.status(500).json({ success: false, error: 'Failed to save model' });
   }
 });
 

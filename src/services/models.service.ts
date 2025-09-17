@@ -1,7 +1,9 @@
 // Here to create a models services to interact with the database.
 
+import e from 'express';
 import pool from '../config/database';
 import { BMRGData, StateData, TransitionData } from '../types/types';
+import { error, log } from 'console';
 
 export async function saveModel(modelData: BMRGData) {
   const client = await pool.connect();
@@ -29,7 +31,45 @@ export async function saveModel(modelData: BMRGData) {
       method_alignment
     } = modelData;
 
-    // aus_eco_archetype_code needs to be string to match db schema
+    // Normalize release_date (e.g., "Aug-24" → "YYYY-08-24"，默认今年)
+    let normalizedReleaseDate: string | null = null;
+    if (release_date) {
+      const monthMap: Record<string, string> = {
+        Jan: '01',
+        Feb: '02',
+        Mar: '03',
+        Apr: '04',
+        May: '05',
+        Jun: '06',
+        Jul: '07',
+        Aug: '08',
+        Sep: '09',
+        Oct: '10',
+        Nov: '11',
+        Dec: '12'
+      };
+
+      const match = release_date.match(/^([A-Za-z]{3})-(\d{1,2})$/); // e.g., "Aug-24"
+      if (match) {
+        const [_, monthStr, day] = match;
+        const monthNum = monthMap[monthStr];
+        if (monthNum) {
+          const currentYear = new Date().getFullYear();
+          normalizedReleaseDate = `${currentYear}-${monthNum}-${day.padStart(2, '0')}`; // YYYY-MM-DD
+        }
+      } else if (!isNaN(Date.parse(release_date))) {
+        normalizedReleaseDate = new Date(release_date).toISOString().split('T')[0]; // already in a valid date format
+      } else {
+        throw new Error(`Invalid release_date format: ${release_date}`);
+      }
+    }
+
+    // chreck region_id exists in regions table
+    const regionCheck = await client.query('SELECT id FROM regions WHERE id = $1', [region_id]);
+    if (regionCheck.rows.length === 0) {
+      throw new Error(`region_id ${region_id} not exist regions table`);
+    }
+
     // Insert main model data
     const modelResult = await client.query(
       `INSERT INTO stmmodel (
@@ -40,7 +80,7 @@ export async function saveModel(modelData: BMRGData) {
       ON CONFLICT (stm_name) DO NOTHING
       RETURNING id`,
       [
-        stm_name, version, release_date, authorised_by, region, region_id, ecosystem_type,
+        stm_name, version, normalizedReleaseDate, authorised_by, region, region_id, ecosystem_type,
         String(aus_eco_archetype_code), aus_eco_archetype_name, aus_eco_umbrella_code, peer_reviewed, no_peer_reviewers, climate
       ]
     );
@@ -71,6 +111,20 @@ export async function saveModel(modelData: BMRGData) {
       // 3.1 Save vast_state
       let vastStateId = null;
       if (state.vast_state) {
+        // Map vast_class to match ENUM in the database
+        const vastClassMap: Record<string, string> = {
+          "Class I": "ClassI",
+          "Class II": "ClassII",
+          "Class III": "ClassIII",
+          "Class IV": "ClassIV",
+          "Class V": "ClassV",
+          "Class VI": "ClassVI",
+        };
+
+        const vastClass = state.vast_state?.vast_class
+          ? vastClassMap[state.vast_state.vast_class] || state.vast_state.vast_class
+          : null;
+
         const vastResult = await client.query(
           `INSERT INTO vast_states (
             vast_class, vast_name, eks_overstorey_class, eks_understorey_class,
@@ -79,7 +133,7 @@ export async function saveModel(modelData: BMRGData) {
           ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
           RETURNING id`,
           [
-            state.vast_state.vast_class, // 需与 vast_class_type ENUM 匹配
+            vastClass,
             state.vast_state.vast_name,
             state.vast_state.eks_overstorey_class,
             state.vast_state.eks_understorey_class,
@@ -91,6 +145,8 @@ export async function saveModel(modelData: BMRGData) {
           ]
         );
         vastStateId = vastResult.rows[0]?.id;
+        console.log("Inserted vast_state with id:", vastStateId);
+        
       }
 
       // 3.2 Save state
@@ -123,6 +179,8 @@ export async function saveModel(modelData: BMRGData) {
         ]
       );
       const stateId = stateResult.rows[0]?.id;
+      console.log("Inserted state with id:", stateId);
+      
 
       // 3.3 Save state_attributes
       // attributes need to be an array of objects with attribute_type, value, units
@@ -141,30 +199,30 @@ export async function saveModel(modelData: BMRGData) {
           );
         }
       }
-    }
 
 
-    // 4. Save transitions
-    for (const transition of transitions) {
-      await client.query(
-        `INSERT INTO transitions (
-          stm_name, start_state_id, end_state_id, transition_id,
-          time_100, time_25, likelihood_25, likelihood_100, transition_delta
-        )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-        ON CONFLICT (transition_id) DO NOTHING`,
-        [
-          stm_name,
-          transition.start_state_id,
-          transition.end_state_id,
-          transition.transition_id,
-          transition.time_100,
-          transition.time_25,
-          transition.likelihood_25,
-          transition.likelihood_100,
-          transition.transition_delta
-        ]
-      );
+      // 4. Save transitions
+      for (const transition of transitions) {
+        await client.query(
+          `INSERT INTO transitions (
+            stm_name, start_state_id, end_state_id, transition_id,
+            time_100, time_25, likelihood_25, likelihood_100, transition_delta
+          )
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+          ON CONFLICT (transition_id) DO NOTHING`,
+          [
+            stm_name,
+            // beacuse stateId is a serial, so here start_state_id is the current stateId to test
+            stateId, // Change to transition.start_state_id later
+            stateId, // Change to transition.start_state_id later
+            transition.transition_id,
+            transition.time_100,
+            transition.time_25,
+            transition.likelihood_25,
+            transition.likelihood_100,
+            transition.transition_delta
+          ]
+        );
 
       // 4.1 Save causal_chain
       for (const chain of transition.causal_chain || []) {
@@ -186,13 +244,26 @@ export async function saveModel(modelData: BMRGData) {
             driverId = insertDriver.rows[0].id;
           }
 
+          // normalize chain_part to match ENUM in the database
+          const chainPartMap: Record<string, string> = {
+            "management intervention": "Management Intervention",
+            "favorable abiotic factor": "Favorable abiotic factor",
+            "biotic process": "Biotic process",
+            "hazard": "Hazard"
+          };
+
+          const chainPart = chain.chain_part
+            ? chainPartMap[chain.chain_part.toLowerCase()] || chain.chain_part
+            : null;
+          
+
           // insert causal_chain
           await client.query(
             `INSERT INTO causal_chain (transition_id, chain_part, name, driver_id)
             VALUES ($1, $2, $3, $4)`,
             [
               transition.transition_id,
-              chain.chain_part,// will match ENUM in DB
+              chainPart,
               driver.driver,
               driverId
             ]
@@ -201,20 +272,20 @@ export async function saveModel(modelData: BMRGData) {
       }
 
     }
-    // 5. Save method_alignment（only stm_name for now)
-    if (method_alignment) {
-      await client.query(
-        `INSERT INTO method_alignment (stm_name)
-         VALUES ($1)
-         ON CONFLICT (stm_name) DO NOTHING`,
-        [stm_name]
-      );
+    console.log("Inserted transitions for state id:", stateId);
+    
+    // 5. Save method_alignment（it's "None" and it don't insert for now)
+    if (method_alignment && method_alignment!== "None") {
+        // will implement later
+        console.log("method_alignment to be implemented:", method_alignment);
+    } else {
+      console.log("No method_alignment provided or it's 'None'"); 
     }
-
 
     await client.query('COMMIT');
     return { modelId };
-  } catch (error) {
+  } 
+} catch (error) {
     await client.query('ROLLBACK');
     throw error;
   } finally {
