@@ -94,7 +94,7 @@ export async function saveModel(modelData: BMRGData) {
         await client.query(
           `INSERT INTO contributors (stm_id, name, email, contibution_type)
            VALUES ($1, $2, $3, $4)
-           ON CONFLICT DO NOTHING`,
+           --ON CONFLICT DO NOTHING`,
           [
             modelId,
             expert.name,
@@ -188,7 +188,7 @@ export async function saveModel(modelData: BMRGData) {
           await client.query(
             `INSERT INTO state_attributes (state_id, attribute_type, value, units)
              VALUES ($1, $2, $3, $4)
-             ON CONFLICT (state_id, attribute_type) DO NOTHING`,
+             --ON CONFLICT (state_id, attribute_type) DO NOTHING`,
             [
               stateId,
               attr.attribute_type, // must match the ENUM in the database
