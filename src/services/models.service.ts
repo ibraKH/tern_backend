@@ -31,7 +31,7 @@ export async function saveModel(modelData: BMRGData) {
       method_alignment
     } = modelData;
 
-    // Normalize release_date (e.g., "Aug-24" → "YYYY-08-24"，默认今年)
+    // Normalize release_date (e.g., "Aug-24" → "YYYY-08-24", assuming current year)
     let normalizedReleaseDate: string | null = null;
     if (release_date) {
       const monthMap: Record<string, string> = {
@@ -145,8 +145,6 @@ export async function saveModel(modelData: BMRGData) {
           ]
         );
         vastStateId = vastResult.rows[0]?.id;
-        console.log("Inserted vast_state with id:", vastStateId);
-        
       }
 
       // 3.2 Save state
@@ -169,6 +167,7 @@ export async function saveModel(modelData: BMRGData) {
         VALUES ($1, $2, $3, $4, $5, $6, $7)
         RETURNING id`,
         [
+          // state.id is serial in database, so don't insert it
           stm_name,
           state.state_name,
           vastStateId,
@@ -179,11 +178,11 @@ export async function saveModel(modelData: BMRGData) {
         ]
       );
       const stateId = stateResult.rows[0]?.id;
-      console.log("Inserted state with id:", stateId);
-      
+
 
       // 3.3 Save state_attributes
       // attributes need to be an array of objects with attribute_type, value, units
+      // now it's null
       if (state.attributes && Array.isArray(state.attributes)) {
         for (const attr of state.attributes) {
           await client.query(
@@ -211,6 +210,7 @@ export async function saveModel(modelData: BMRGData) {
           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
           ON CONFLICT (transition_id) DO NOTHING`,
           [
+            // transition.id is serial in database, so don't insert it
             stm_name,
             // beacuse stateId is a serial, so here start_state_id is the current stateId to test
             stateId, // Change to transition.start_state_id later
@@ -272,8 +272,7 @@ export async function saveModel(modelData: BMRGData) {
       }
 
     }
-    console.log("Inserted transitions for state id:", stateId);
-    
+
     // 5. Save method_alignment（it's "None" and it don't insert for now)
     if (method_alignment && method_alignment!== "None") {
         // will implement later
