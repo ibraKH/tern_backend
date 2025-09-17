@@ -77,7 +77,7 @@ export async function saveModel(modelData: BMRGData) {
         aus_eco_archetype_code, aus_eco_archetype_name, aus_eco_umbrella_code, peer_reviewed, no_peer_reviewers, climate
       )
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-      ON CONFLICT (stm_name) DO NOTHING
+      --ON CONFLICT (stm_name) DO NOTHING
       RETURNING id`,
       [
         stm_name, version, normalizedReleaseDate, authorised_by, region, region_id, ecosystem_type,
@@ -202,13 +202,14 @@ export async function saveModel(modelData: BMRGData) {
 
       // 4. Save transitions
       for (const transition of transitions) {
-        await client.query(
+        const transitionResult = await client.query(
           `INSERT INTO transitions (
             stm_name, start_state_id, end_state_id, transition_id,
             time_100, time_25, likelihood_25, likelihood_100, transition_delta
           )
           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-          ON CONFLICT (transition_id) DO NOTHING`,
+          RETURNING id
+          --ON CONFLICT (transition_id) DO NOTHING`,
           [
             // transition.id is serial in database, so don't insert it
             stm_name,
@@ -224,52 +225,55 @@ export async function saveModel(modelData: BMRGData) {
           ]
         );
 
-      // 4.1 Save causal_chain
-      for (const chain of transition.causal_chain || []) {
-        // traverse drivers
-        for (const driver of chain.drivers || []) {
-          // find or insert driver
-          let driverId: number | null = null;
-          const driverResult = await client.query(
-            `SELECT id FROM drivers WHERE driver = $1 AND driver_group = $2`,
-            [driver.driver, driver.driver_group]
-          );
-          if (driverResult.rows.length > 0) {
-            driverId = driverResult.rows[0].id;
-          } else {
-            const insertDriver = await client.query(
-              `INSERT INTO drivers (driver, driver_group) VALUES ($1, $2) RETURNING id`,
+        const transitionId = transitionResult.rows[0].id;
+
+        // 4.1 Save causal_chain
+        for (const chain of transition.causal_chain || []) {
+          // traverse drivers
+          for (const driver of chain.drivers || []) {
+            // find or insert driver
+            let driverId: number | null = null;
+            const driverResult = await client.query(
+              `SELECT id FROM drivers WHERE driver = $1 AND driver_group = $2`,
               [driver.driver, driver.driver_group]
             );
-            driverId = insertDriver.rows[0].id;
+            if (driverResult.rows.length > 0) {
+              driverId = driverResult.rows[0].id;
+            } else {
+              const insertDriver = await client.query(
+                `INSERT INTO drivers (driver, driver_group) VALUES ($1, $2) RETURNING id`,
+                [driver.driver, driver.driver_group]
+              );
+              driverId = insertDriver.rows[0].id;
+            }
+
+            // normalize chain_part to match ENUM in the database
+            const chainPartMap: Record<string, string> = {
+              "management intervention": "Management Intervention",
+              "favorable abiotic factor": "Favorable abiotic factor",
+              "favourable abiotic factor":"Favorable abiotic factor",
+              "biotic process": "Biotic process",
+              "hazard": "Hazard"
+            };
+
+            const chainPart = chain.chain_part
+              ? chainPartMap[chain.chain_part.toLowerCase()] || chain.chain_part
+              : null;
+            
+
+            // insert causal_chain
+            await client.query(
+              `INSERT INTO causal_chain (transition_id, chain_part, name, driver_id)
+              VALUES ($1, $2, $3, $4)`,
+              [
+                transitionId,
+                chainPart,
+                driver.driver,
+                driverId
+              ]
+            );
           }
-
-          // normalize chain_part to match ENUM in the database
-          const chainPartMap: Record<string, string> = {
-            "management intervention": "Management Intervention",
-            "favorable abiotic factor": "Favorable abiotic factor",
-            "biotic process": "Biotic process",
-            "hazard": "Hazard"
-          };
-
-          const chainPart = chain.chain_part
-            ? chainPartMap[chain.chain_part.toLowerCase()] || chain.chain_part
-            : null;
-          
-
-          // insert causal_chain
-          await client.query(
-            `INSERT INTO causal_chain (transition_id, chain_part, name, driver_id)
-            VALUES ($1, $2, $3, $4)`,
-            [
-              transition.transition_id,
-              chainPart,
-              driver.driver,
-              driverId
-            ]
-          );
         }
-      }
 
     }
 
