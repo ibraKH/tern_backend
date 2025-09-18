@@ -1,4 +1,5 @@
 import express, { Request, Response, NextFunction } from 'express';
+import { saveModel } from '../services/models.service';
 import { getAllModels } from '../services/models.service';
 import { getModelByName } from '../services/models.service';
 import pool from '../config/database';
@@ -30,9 +31,20 @@ models.get('/models/:name', async (req: Request, res: Response) => {
   } catch (error) {
     res.status(500).json({ message: 'Error fetching model details', error });
   }
-}); 
+});
 
 
+
+
+// POST route for saving a model
+models.post('/save', async (req, res) => {
+  try {
+    const modelId = await saveModel(req.body);
+    res.status(201).json({ success: true, modelId });
+  } catch (error) {
+    console.error('Error saving model:', error);
+    res.status(500).json({ success: false, error: 'Failed to save model' });
+  }
+});
 
 export default models;
-
