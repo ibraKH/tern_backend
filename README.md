@@ -1,6 +1,6 @@
 ### Prerequisites
 - Node.js 18+
-- PostgreSQL running locally (or a connection string)
+- **EITHER**: PostgreSQL running locally **OR** Docker + Docker Compose
 
 ### Install
 ```bash
@@ -22,17 +22,45 @@ BCRYPT_SALT_ROUNDS="Write here"
 BCRYPT_PEPPER="Write here"
 
 # Database
-DATABASE_URL=postgres://user:pass@localhost:5432/"yourdb"
+PG_HOST=db
+PG_USER=app
+PG_PASSWORD=app
+PG_DB=app_db
+DATABASE_URL=postgres://${PG_USER}:${PG_PASSWORD}@${PG_HOST}:5432/${PG_DB}
 ```
+
+> If you’re running Postgres **locally**, set `PG_HOST=localhost` (or just set `DATABASE_URL=postgres://user:pass@localhost:5432/yourdb`).
+
 --- 
 
-### Run
+## Run (Local, no Docker)
 ```bash
 npm run dev
 npm run build
+npm start
 ```
 
 ---
+
+## Run (Docker)
+> Uses the provided `Dockerfile` and `docker-compose.yml`.
+```bash
+# 1) Build images and start containers
+docker compose up -d --build
+
+# 2) See logs
+docker compose logs -f app
+
+# 3) Stop
+docker compose down
+# to remove db volume/data:
+# docker compose down -v
+```
+### Create tables (no migrations yet)
+Open psql inside the DB container and run your `CREATE TABLE ...`:
+```bash
+docker exec -it app_postgres psql -U ${PG_USER:-app} -d ${PG_DB:-app_db}
+```
 
 ## 🔑 API Endpoints
 
@@ -157,7 +185,11 @@ Authorization: Bearer <JWT_TOKEN>
 
 Run tests:
 ```bash
+# Local
 npm test
+
+# Docker (runs in app container)
+docker compose run --rm app npm test -- --runInBand
 ```
 
 ---
