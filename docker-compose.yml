@@ -2,7 +2,7 @@ version: "3.9"
 
 services:
   db:
-    image: postgres:16
+    image: postgis/postgis:16-3.4
     container_name: app_postgres
     environment:
       POSTGRES_USER: ${PG_USER}
@@ -13,7 +13,7 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U app -d app_db"]
+      test: ["CMD-SHELL", "pg_isready -U ${PG_USER:-postgres} -d ${PG_DB:-tern_backend}"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -22,12 +22,24 @@ services:
     build: .
     container_name: app_backend
     env_file:
-      - .env             
+      - .env        
     depends_on:
       db:
         condition: service_healthy
     ports:
       - "3000:3000"
+
+  migrate:
+    build:
+      context: .
+      target: migrate
+    container_name: app_migrate
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - .env
+    restart: "no"
 
 volumes:
   pgdata:

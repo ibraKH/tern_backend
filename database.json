@@ -1,0 +1,18 @@
+{
+  "dev": {
+    "driver": "pg",
+    "host": { "ENV": "PG_HOST" },
+    "port": { "ENV": "PG_PORT" },
+    "database": { "ENV": "PG_DB" },
+    "user": { "ENV": "PG_USER" },
+    "password": { "ENV": "PG_PASSWORD" }
+  },
+  "test": {
+    "driver": "pg",
+    "host": { "ENV": "PG_HOST" },
+    "port": { "ENV": "PG_PORT" },
+    "database": "storebackend_test",
+    "user": { "ENV": "PG_USER" },
+    "password": { "ENV": "PG_PASSWORD" }
+  }
+}

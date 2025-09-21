@@ -5,7 +5,16 @@ RUN npm ci
 COPY tsconfig.json ./
 COPY src ./src
 RUN npm run build
-# runtime for production
+
+FROM node:20-bookworm-slim AS migrate
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci --include=dev --omit=optional
+COPY migrations ./migrations
+COPY database.json ./
+ENTRYPOINT ["npx","node-pg-migrate"]
+CMD ["up","-m","migrations","-f","database.json","--config-value","dev"]
+
 FROM node:20-bookworm-slim
 WORKDIR /app
 ENV NODE_ENV=production
