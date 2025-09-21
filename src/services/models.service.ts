@@ -162,7 +162,53 @@ export async function getModelByName(name: string): Promise<BMRGData | null> {
   }
 }
 
-
+/**
+ * Persists a State and Transition Model (STM) into the database.
+ *
+ * <p>This function saves a complete STM record including its metadata, contributors, states,
+ * transitions, causal chains, and associated entities. It ensures transactional integrity
+ * by wrapping all insert operations in a single SQL transaction.</p>
+ *
+ * <h3>Main Steps</h3>
+ * <ol>
+ *   <li><b>Normalize Release Date</b>: Converts string inputs (e.g., "Aug-24") to ISO date format (YYYY-MM-DD).
+ *   <li><b>Check Region</b>: Ensures {@code region_id} exists in the {@code regions} table.
+ *   <li><b>Insert Model Metadata</b>: Saves core information into the {@code stmmodel} table.
+ *   <li><b>Insert Contributors</b>: Adds all contributing experts into the {@code contributors} table.
+ *   <li><b>Insert States</b>:
+ *       <ul>
+ *         <li>Optionally inserts {@code vast_states} for each state.</li>
+ *         <li>Saves {@code states} with condition values and elicitation type.</li>
+ *         <li>Saves {@code state_attributes} if present.</li>
+ *       </ul>
+ *   <li><b>Insert Transitions</b>:
+ *       <ul>
+ *         <li>Saves {@code transitions} between states.</li>
+ *         <li>For each transition, saves the {@code causal_chain} and links to drivers.</li>
+ *       </ul>
+ *   <li><b>Handle Method Alignment</b>: Currently logs alignment information but does not persist when {@code method_alignment = "None"}.</li>
+ *   <li><b>Commit Transaction</b>: On success, commits all inserts; on failure, rolls back.</li>
+ * </ol>
+ *
+ * <h3>Database Tables Involved</h3>
+ * <ul>
+ *   <li>{@code stmmodel}</li>
+ *   <li>{@code contributors}</li>
+ *   <li>{@code vast_states}</li>
+ *   <li>{@code states}</li>
+ *   <li>{@code state_attributes}</li>
+ *   <li>{@code transitions}</li>
+ *   <li>{@code causal_chain}</li>
+ *   <li>{@code drivers}</li>
+ * </ul>
+ *
+ * @param modelData The {@code BMRGData} object containing STM metadata, states, transitions,
+ *                  contributing experts, and method alignment information.
+ * @return An object containing the generated {@code modelId} of the saved STM.
+ * @throws SQLException if any SQL operation fails during the transaction.
+ * @throws IllegalArgumentException if {@code release_date} format is invalid
+ *                                  or {@code region_id} does not exist in the database.
+ */
 export async function saveModel(modelData: BMRGData) {
   const client = await pool.connect();
   try {
