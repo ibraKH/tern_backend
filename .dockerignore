@@ -3,3 +3,7 @@ dist
 coverage
 .git
 .env
+.gitignore
+npm-debug.log*
+Dockerfile.*
+*.log

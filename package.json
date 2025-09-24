@@ -9,7 +9,12 @@
     "start": "node dist/index.js",
     "test": "jest",
     "test:watch": "jest --watch",
-    "test:cov": "jest --coverage"
+    "test:cov": "jest --coverage",
+    "migrate": "node-pg-migrate",
+    "migrate:create": "node-pg-migrate create -m migrations -j js",
+    "migrate:up": "node-pg-migrate up -m migrations -f database.json --config-value dev --envPath .env",
+    "migrate:down": "node-pg-migrate down -m migrations -f database.json --config-value dev --envPath .env",
+    "migrate:status": "node-pg-migrate status -m migrations -f database.json --config-value dev --envPath .env"
   },
   "keywords": [],
   "author": "",
@@ -34,7 +39,9 @@
     "@types/node": "^24.3.0",
     "@types/pg": "^8.15.5",
     "@types/supertest": "^6.0.3",
+    "dotenv-cli": "^10.0.0",
     "jest": "^30.1.3",
+    "node-pg-migrate": "^8.0.3",
     "nodemon": "^3.1.10",
     "supertest": "^7.1.4",
     "ts-jest": "^29.4.1",
