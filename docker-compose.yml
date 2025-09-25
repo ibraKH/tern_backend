@@ -19,7 +19,9 @@ services:
       retries: 10
 
   app:
-    build: .
+    build:
+      context: .
+      target: dev
     container_name: app_backend
     env_file:
       - .env        
@@ -28,6 +30,10 @@ services:
         condition: service_healthy
     ports:
       - "3000:3000"
+    volumes:
+      - .:/app               
+      - /app/node_modules   
+    command: ["npm","run","dev"] 
 
   migrate:
     build:

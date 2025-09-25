@@ -15,7 +15,15 @@ COPY database.json ./
 ENTRYPOINT ["npx","node-pg-migrate"]
 CMD ["up","-m","migrations","-f","database.json","--config-value","dev"]
 
-FROM node:20-bookworm-slim
+FROM node:20-bookworm-slim AS dev
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci                     
+COPY tsconfig.json ./
+ENV NODE_ENV=development
+CMD ["npx","nodemon","--watch","src","--ext","ts,js,json","--exec","ts-node","src/index.ts"]
+
+FROM node:20-bookworm-slim AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 COPY package*.json ./
