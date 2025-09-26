@@ -13,7 +13,8 @@ app.use(express.json());
 
 // Routes
 app.use('/auth', authRoutes);     
-app.use('/models', requireAuth, modelsRoutes);
+// app.use('/models', requireAuth, modelsRoutes);
+app.use('/models', modelsRoutes);
 
 // 404 handler
 app.use((req: Request, res: Response) => {
