@@ -255,11 +255,11 @@ export async function saveModel(modelData: BMRGData) {
 
       const match = release_date.match(/^([A-Za-z]{3})-(\d{1,2})$/); // e.g., "Aug-24"
       if (match) {
-        const [_, monthStr, day] = match;
+        const [_, monthStr, yearStr] = match;
         const monthNum = monthMap[monthStr];
         if (monthNum) {
-          const currentYear = new Date().getFullYear();
-          normalizedReleaseDate = `${currentYear}-${monthNum}-${day.padStart(2, '0')}`; // YYYY-MM-DD
+          const fullYear = `20${yearStr.padStart(2,'0')}`; // "24" -> "2024"
+          normalizedReleaseDate = `${fullYear}-${monthNum}-01`; // Use first day of month
         }
       } else if (!isNaN(Date.parse(release_date))) {
         normalizedReleaseDate = new Date(release_date).toISOString().split('T')[0]; // already in a valid date format
