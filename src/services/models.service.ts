@@ -162,33 +162,9 @@ export async function getModelByName(name: string): Promise<BMRGData | null> {
   }
 }
 
-// Save a new model
-export async function saveModel(modelData: BMRGData) {
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
 
-    // 1. Save main model
-    const {
-      stm_name,
-      version,
-      release_date,
-      authorised_by,
-      contributing_experts,
-      region,
-      region_id,
-      climate,
-      ecosystem_type,
-      aus_eco_archetype_code,
-      aus_eco_archetype_name,
-      aus_eco_umbrella_code,
-      peer_reviewed,
-      no_peer_reviewers,
-      states,
-      transitions,
-      method_alignment
-    } = modelData;
-
+// ---------- Utility functions ----------
+function normalizeReleaseDate(release_date?: string): string | null {
     // Normalize release_date (e.g., "Aug-24" → "YYYY-08-24", assuming current year)
     let normalizedReleaseDate: string | null = null;
     if (release_date) {
@@ -222,12 +198,34 @@ export async function saveModel(modelData: BMRGData) {
       }
     }
 
+    return normalizedReleaseDate;
+}
+
+// ---------- DB upsert helpers ----------
+// 1. Upsert main model
+async function upsertModelMetadata(client: any, modelData: BMRGData): Promise<number> {
+    const {
+      stm_name,
+      version,
+      release_date,
+      authorised_by,
+      region,
+      region_id,
+      climate,
+      ecosystem_type,
+      aus_eco_archetype_code,
+      aus_eco_archetype_name,
+      aus_eco_umbrella_code,
+      peer_reviewed,
+      no_peer_reviewers,
+    } = modelData;
+    // Normalize release_date (e.g., "Aug-24" → "YYYY-08-24", assuming current year)
+    const normalizedReleaseDate = normalizeReleaseDate(release_date);
     // chreck region_id exists in regions table
     const regionCheck = await client.query('SELECT id FROM regions WHERE id = $1', [region_id]);
     if (regionCheck.rows.length === 0) {
       throw new Error(`region_id ${region_id} not exist regions table`);
     }
-
     // Upsert main model data
     const modelResult = await client.query(
       `INSERT INTO stmmodel (
@@ -235,7 +233,7 @@ export async function saveModel(modelData: BMRGData) {
         aus_eco_archetype_code, aus_eco_archetype_name, aus_eco_umbrella_code, peer_reviewed, no_peer_reviewers, climate
       )
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-      ON CONFLICT (stm_name)
+      ON CONFLICT ("stm_name")
       DO UPDATE SET
       version = EXCLUDED.version,
       release_date = EXCLUDED.release_date,
@@ -257,15 +255,16 @@ export async function saveModel(modelData: BMRGData) {
     );
     // stmmodel id
     const modelId = modelResult.rows[0]?.id;
+    return modelId;
+}
 
-
-    // 2. Save contributors
-    if (contributing_experts && contributing_experts.length > 0) {
-      for (const expert of contributing_experts) {
+// 2. TODO: Upsert contributors
+async function upsertContributors(client: any, modelId: number, contributors: any[]) {
+    if (contributors && contributors.length > 0) {
+      for (const expert of contributors) {
         await client.query(
           `INSERT INTO contributors (stm_id, name, email, contibution_type)
-           VALUES ($1, $2, $3, $4)
-           --ON CONFLICT DO NOTHING`,
+           VALUES ($1, $2, $3, $4)`,
           [
             modelId,
             expert.name,
@@ -275,190 +274,216 @@ export async function saveModel(modelData: BMRGData) {
         );
       }
     }
+}
 
+// TODO: 3. Upsert states & vast_states & state_attributes
+async function upsertStates(client: any, stm_name: string, states: any[]): Promise<number[]> {
+  const stateIds: number[] = [];
 
-    // 3. Save states & vast_states & state_attributes
-    for (const state of states) {
-      // 3.1 Save vast_state
-      let vastStateId = null;
-      if (state.vast_state) {
-        // Map vast_class to match ENUM in the database
-        const vastClassMap: Record<string, string> = {
-          "Class I": "ClassI",
-          "Class II": "ClassII",
-          "Class III": "ClassIII",
-          "Class IV": "ClassIV",
-          "Class V": "ClassV",
-          "Class VI": "ClassVI",
-        };
+  for (const state of states) {
+    // 3.1 Upsert vast_state
+    // There is vast_eks_state in the StateData type, but no such column in the database
+    let vastStateId = null;
+    if (state.vast_state) {
+      // Map vast_class to match ENUM in the database
+      const vastClassMap: Record<string, string> = {
+        "Class I": "ClassI",
+        "Class II": "ClassII",
+        "Class III": "ClassIII",
+        "Class IV": "ClassIV",
+        "Class V": "ClassV",
+        "Class VI": "ClassVI",
+      };
 
-        const vastClass = state.vast_state?.vast_class
-          ? vastClassMap[state.vast_state.vast_class] || state.vast_state.vast_class
-          : null;
-
-        const vastResult = await client.query(
-          `INSERT INTO vast_states (
-            vast_class, vast_name, eks_overstorey_class, eks_understorey_class,
-            vast_condition_lower, vast_condition_upper, eks_substate_condition_estimate,
-            eks_substate, link
-          ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-          RETURNING id`,
-          [
-            vastClass,
-            state.vast_state.vast_name,
-            state.vast_state.eks_overstorey_class,
-            state.vast_state.eks_understorey_class,
-            null, // vast_condition_lower
-            null, // vast_condition_upper
-            null, // eks_substate_condition_estimate
-            state.vast_state.eks_substate,
-            state.vast_state.link
-          ]
-        );
-        vastStateId = vastResult.rows[0]?.id;
+      if (!state.vast_state?.vast_class) {
+        throw new Error("Missing vast_class in state.vast_state");
       }
 
-      // 3.2 Save state
-      // ellictation_type must be one of the ENUM values in the database
-      let elicitType = null;
-      if (state.elicitation_type) {
-        // Normalize the elicitation_type to match ENUM values
-        if (state.elicitation_type.toLowerCase() === 'pilot region') {
-          elicitType = 'Pilot region';
-        } else if (state.elicitation_type.toLowerCase() === 'neap estimate') {
-          elicitType = 'NEAP estimate';
-        } else {
-          elicitType = state.elicitation_type;
-        }
+      const vastClass = vastClassMap[state.vast_state.vast_class];
+      if (!vastClass) {
+        throw new Error(`Invalid vast_class: ${state.vast_state.vast_class}`);
       }
-      const stateResult = await client.query(
-        `INSERT INTO states (
-          stm_name, state_name, vast_state_id, eks_condition_estimate, condition_lower, condition_upper, ellictation_type
-        )
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
+      // Insert new vast_state
+      const vastResult = await client.query(
+        `INSERT INTO vast_states (
+          vast_class, vast_name, eks_overstorey_class, eks_understorey_class,
+          vast_condition_lower, vast_condition_upper, eks_substate_condition_estimate,
+          eks_substate, link
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
         RETURNING id`,
         [
-          // state.id is serial in database, so don't insert it
-          stm_name,
-          state.state_name,
-          vastStateId,
-          state.eks_condition_estimate,
-          state.condition_lower,
-          state.condition_upper,
-          elicitType
+          vastClass,
+          state.vast_state.vast_name,
+          state.vast_state.eks_overstorey_class,
+          state.vast_state.eks_understorey_class,
+          null, // vast_condition_lower
+          null, // vast_condition_upper
+          null, // eks_substate_condition_estimate
+          state.vast_state.eks_substate,
+          state.vast_state.link
         ]
       );
-      const stateId = stateResult.rows[0]?.id;
-
-
-      // 3.3 Save state_attributes
-      // attributes need to be an array of objects with attribute_type, value, units
-      // now it's null
-      if (state.attributes && Array.isArray(state.attributes)) {
-        for (const attr of state.attributes) {
-          await client.query(
-            `INSERT INTO state_attributes (state_id, attribute_type, value, units)
-             VALUES ($1, $2, $3, $4)
-             --ON CONFLICT (state_id, attribute_type) DO NOTHING`,
-            [
-              stateId,
-              attr.attribute_type, // must match the ENUM in the database
-              attr.value,
-              attr.units || null
-            ]
-          );
-        }
-      }
-
-
-      // 4. Save transitions
-      for (const transition of transitions) {
-        const transitionResult = await client.query(
-          `INSERT INTO transitions (
-            stm_name, start_state_id, end_state_id, transition_id,
-            time_100, time_25, likelihood_25, likelihood_100, transition_delta
-          )
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-          RETURNING id
-          --ON CONFLICT (transition_id) DO NOTHING`,
-          [
-            // transition.id is serial in database, so don't insert it
-            stm_name,
-            // beacuse stateId is a serial, so here start_state_id is the current stateId to test
-            stateId, // Change to transition.start_state_id later
-            stateId, // Change to transition.start_state_id later
-            transition.transition_id,
-            transition.time_100,
-            transition.time_25,
-            transition.likelihood_25,
-            transition.likelihood_100,
-            transition.transition_delta
-          ]
-        );
-
-        const transitionId = transitionResult.rows[0].id;
-
-        // 4.1 Save causal_chain
-        for (const chain of transition.causal_chain || []) {
-          // traverse drivers
-          for (const driver of chain.drivers || []) {
-            // find or insert driver
-            let driverId: number | null = null;
-            const driverResult = await client.query(
-              `SELECT id FROM drivers WHERE driver = $1 AND driver_group = $2`,
-              [driver.driver, driver.driver_group]
-            );
-            if (driverResult.rows.length > 0) {
-              driverId = driverResult.rows[0].id;
-            } else {
-              const insertDriver = await client.query(
-                `INSERT INTO drivers (driver, driver_group) VALUES ($1, $2) RETURNING id`,
-                [driver.driver, driver.driver_group]
-              );
-              driverId = insertDriver.rows[0].id;
-            }
-
-            // normalize chain_part to match ENUM in the database
-            const chainPartMap: Record<string, string> = {
-              "management intervention": "Management Intervention",
-              "favorable abiotic factor": "Favorable abiotic factor",
-              "favourable abiotic factor":"Favorable abiotic factor",
-              "biotic process": "Biotic process",
-              "hazard": "Hazard"
-            };
-
-            const chainPart = chain.chain_part
-              ? chainPartMap[chain.chain_part.toLowerCase()] || chain.chain_part
-              : null;
-
-
-            // insert causal_chain
-            await client.query(
-              `INSERT INTO causal_chain (transition_id, chain_part, name, driver_id)
-              VALUES ($1, $2, $3, $4)`,
-              [
-                transitionId,
-                chainPart,
-                driver.driver,
-                driverId
-              ]
-            );
-          }
-        }
-
+      vastStateId = vastResult.rows[0]?.id;
     }
 
+    // 3.2 Save state
+    // ellictation_type must be one of the ENUM values in the database
+    let elicitType = null;
+    if (state.elicitation_type) {
+      // Normalize the elicitation_type to match ENUM values
+      if (state.elicitation_type.toLowerCase() === 'pilot region') {
+        elicitType = 'Pilot region';
+      } else if (state.elicitation_type.toLowerCase() === 'neap estimate') {
+        elicitType = 'NEAP estimate';
+      } else {
+        elicitType = state.elicitation_type;
+      }
+    }
+    const stateResult = await client.query(
+      `INSERT INTO states (
+        stm_name, state_name, vast_state_id, eks_condition_estimate,
+        condition_lower, condition_upper, ellictation_type
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      RETURNING id`,
+      [
+        // state.id is serial in database, so don't insert it
+        stm_name,
+        state.state_name,
+        vastStateId,
+        state.eks_condition_estimate,
+        state.condition_lower,
+        state.condition_upper,
+        elicitType
+      ]
+    );
+    const stateId = stateResult.rows[0]?.id;
+    stateIds.push(stateId);
+
+    // 3.3 Save state_attributes
+    // attributes need to be an array of objects with attribute_type, value, units
+    // now it's null
+    if (state.attributes && Array.isArray(state.attributes)) {
+      for (const attr of state.attributes) {
+        await client.query(
+          `INSERT INTO state_attributes (state_id, attribute_type, value, units)
+            VALUES ($1, $2, $3, $4)
+            --ON CONFLICT (id) DO NOTHING`,
+          [
+            stateId,
+            attr.attribute_type, // must match the ENUM in the database
+            attr.value,
+            attr.units
+          ]
+        );
+      }
+    }
+  }
+
+  return stateIds;
+}
+
+// TODO: 4. Upsert transitions & causal_chain & drivers
+async function upsertTransitions(client: any, stm_name: string, states: number[], transitions: any[]) {
+  
+  for (const transition of transitions) {
+    // There is notes field in the TransitionData type, but no such column in the database
+    // 4.1 Save transition
+    const transitionResult = await client.query(
+      `INSERT INTO transitions (
+        stm_name, start_state_id, end_state_id, transition_id,
+        time_100, time_25, likelihood_25, likelihood_100, transition_delta
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      RETURNING id
+      --ON CONFLICT (transition_id) DO NOTHING`,
+      [
+        // transition.id is serial in database, so don't insert it
+        stm_name,
+        // beacuse stateId is a serial, so here start_state_id is the current stateId to test
+        states[0], // Change to transition.start_state_id later
+        states[0], // Change to transition.end_state_id later
+        transition.transition_id,
+        transition.time_100,
+        transition.time_25,
+        transition.likelihood_25,
+        transition.likelihood_100,
+        transition.transition_delta
+      ]
+    );
+    const transitionId = transitionResult.rows[0].id;
+
+    // 4.2 Save causal_chain
+    for (const chain of transition.causal_chain || []) {
+      // traverse drivers
+      for (const driver of chain.drivers || []) {
+        // find or insert driver
+        let driverId: number | null = null;
+        const driverResult = await client.query(
+          `SELECT id FROM drivers WHERE driver = $1 AND driver_group = $2`,
+          [driver.driver, driver.driver_group]
+        );
+        if (driverResult.rows.length > 0) {
+          driverId = driverResult.rows[0].id;
+        } else {
+          const insertDriver = await client.query(
+            `INSERT INTO drivers (driver, driver_group) VALUES ($1, $2) RETURNING id`,
+            [driver.driver, driver.driver_group]
+          );
+          driverId = insertDriver.rows[0].id;
+        }
+        // normalize chain_part to match ENUM in the database
+        const chainPartMap: Record<string, string> = {
+          "management intervention": "Management Intervention",
+          "favorable abiotic factor": "Favorable abiotic factor",
+          "favourable abiotic factor":"Favorable abiotic factor",
+          "biotic process": "Biotic process",
+          "hazard": "Hazard"
+        };
+        const chainPart = chain.chain_part
+          ? chainPartMap[chain.chain_part.toLowerCase()] || chain.chain_part
+          : null;
+        // insert causal_chain
+        await client.query(
+          `INSERT INTO causal_chain (transition_id, chain_part, name, driver_id)
+          VALUES ($1, $2, $3, $4)`,
+          [
+            transitionId,
+            chainPart,
+            driver.driver,
+            driverId
+          ]
+        );
+      }
+    }
+  }
+}
+
+// Save a new model
+export async function saveModel(modelData: BMRGData) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // 1. Upsert main model
+    const modelId = await upsertModelMetadata(client, modelData);
+    // 2. Upsert contributors
+    await upsertContributors(client, modelId, modelData.contributing_experts);
+    // 3. Upsert states & vast_states & state_attributes
+    const stateIds = await upsertStates(client, modelData.stm_name, modelData.states);
+    // 4. Upsert transitions & causal_chain & drivers
+    await upsertTransitions(client, modelData.stm_name, stateIds, modelData.transitions);
     // 5. Save method_alignment（it's "None" and it don't insert for now)
-    if (method_alignment && method_alignment!== "None") {
+    if (modelData.method_alignment && modelData.method_alignment!== "None") {
         // will implement later
-        console.log("method_alignment to be implemented:", method_alignment);
+        console.log("method_alignment to be implemented:", modelData.method_alignment);
     } else {
       console.log("No method_alignment provided or it's 'None'");
     }
 
     await client.query('COMMIT');
     return { modelId };
-  }
+
 } catch (error) {
     await client.query('ROLLBACK');
     throw error;
