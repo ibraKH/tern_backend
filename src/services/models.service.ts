@@ -228,14 +228,27 @@ export async function saveModel(modelData: BMRGData) {
       throw new Error(`region_id ${region_id} not exist regions table`);
     }
 
-    // Insert main model data
+    // Upsert main model data
     const modelResult = await client.query(
       `INSERT INTO stmmodel (
         stm_name, version, release_date, authorised_by, region, region_id, ecosystem_type,
         aus_eco_archetype_code, aus_eco_archetype_name, aus_eco_umbrella_code, peer_reviewed, no_peer_reviewers, climate
       )
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-      --ON CONFLICT (stm_name) DO NOTHING
+      ON CONFLICT (stm_name)
+      DO UPDATE SET
+      version = EXCLUDED.version,
+      release_date = EXCLUDED.release_date,
+      authorised_by = EXCLUDED.authorised_by,
+      region = EXCLUDED.region,
+      region_id = EXCLUDED.region_id,
+      ecosystem_type = EXCLUDED.ecosystem_type,
+      aus_eco_archetype_code = EXCLUDED.aus_eco_archetype_code,
+      aus_eco_archetype_name = EXCLUDED.aus_eco_archetype_name,
+      aus_eco_umbrella_code = EXCLUDED.aus_eco_umbrella_code,
+      peer_reviewed = EXCLUDED.peer_reviewed,
+      no_peer_reviewers = EXCLUDED.no_peer_reviewers,
+      climate = EXCLUDED.climate
       RETURNING id`,
       [
         stm_name, version, normalizedReleaseDate, authorised_by, region, region_id, ecosystem_type,
