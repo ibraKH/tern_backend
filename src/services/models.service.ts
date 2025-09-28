@@ -222,65 +222,102 @@ async function upsertModelMetadata(client: any, modelData: BMRGData): Promise<nu
     } = modelData;
     // Normalize release_date (e.g., "Aug-24" → "YYYY-08-24", assuming current year)
     const normalizedReleaseDate = normalizeReleaseDate(release_date);
-    // chreck region_id exists in regions table
-    const regionCheck = await client.query('SELECT id FROM regions WHERE id = $1', [region_id]);
-    if (regionCheck.rows.length === 0) {
-      throw new Error(`region_id ${region_id} not exist regions table`);
-    }
+
     // modelId
     let modelResult;
     // Upsert main model data
     if (id) {
-      // If id is provided, try to update existing record
-      modelResult = await client.query(
-        `UPDATE stmmodel SET
-          stm_name = $1,
-          version = $2,
-          release_date = $3,
-          authorised_by = $4,
-          region = $5,
-          region_id = $6,
-          ecosystem_type = $7,
-          aus_eco_archetype_code = $8,
-          aus_eco_archetype_name = $9,
-          aus_eco_umbrella_code = $10,
-          peer_reviewed = $11,
-          no_peer_reviewers = $12,
-          climate = $13
-        WHERE id = $14
-        RETURNING id`,
-        [
-          stm_name, version, normalizedReleaseDate, authorised_by, region, region_id, ecosystem_type,
-          String(aus_eco_archetype_code), aus_eco_archetype_name, aus_eco_umbrella_code,
-          peer_reviewed, no_peer_reviewers, climate, id
-        ]
-      );
-      // Check if any row was updated
+      // --- UPDATE existing record ---
+      // Build SET clause dynamically (only include fields that are not undefined)
+      const fields: string[] = [];
+      const values: any[] = [];
+
+      const updateMap: Record<string, any> = {
+        stm_name,
+        version,
+        release_date,
+        authorised_by,
+        region,
+        region_id,
+        ecosystem_type,
+        aus_eco_archetype_code: aus_eco_archetype_code !== undefined ? String(aus_eco_archetype_code) : undefined,
+        aus_eco_archetype_name,
+        aus_eco_umbrella_code,
+        peer_reviewed,
+        no_peer_reviewers,
+        climate,
+      };
+      
+      if(release_date != undefined){
+        updateMap['release_date'] = normalizedReleaseDate;
+      }
+        
+      let i = 1;
+      for (const [key, value] of Object.entries(updateMap)) {
+        if (value !== undefined) {
+          fields.push(`${key} = $${i}`);
+          values.push(value); // null will clear the column
+          i++;
+        }
+      }
+
+      if (fields.length === 0) {
+        throw { status: 400, message: "No fields to update" };
+      }
+
+      values.push(id); // last param is id
+      const query = `
+        UPDATE stmmodel
+        SET ${fields.join(", ")}
+        WHERE id = $${i}
+        RETURNING id
+      `;
+
+      modelResult = await client.query(query, values);
+
+      // Ensure record exists
       if (modelResult.rows.length === 0) {
         throw { status: 404, message: `stmmodel with id ${id} not found` };
       }
-      
+
     }else{
       // Insert new record or update if stm_name exists
-      modelResult = await client.query(
-        `INSERT INTO stmmodel (
-          stm_name, version, release_date, authorised_by, region, region_id, ecosystem_type,
-          aus_eco_archetype_code, aus_eco_archetype_name, aus_eco_umbrella_code, peer_reviewed, no_peer_reviewers, climate
-        )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-        RETURNING id`,
-        [
-          stm_name, version, normalizedReleaseDate, authorised_by, region, region_id, ecosystem_type,
-          String(aus_eco_archetype_code), aus_eco_archetype_name, aus_eco_umbrella_code, peer_reviewed, no_peer_reviewers, climate
-        ]
-      );
+      // chreck region_id exists in regions table
+      const regionCheck = await client.query('SELECT id FROM regions WHERE id = $1', [region_id]);
+      if (regionCheck.rows.length === 0) {
+        throw new Error(`region_id ${region_id} not exist regions table`);
+      }
+      try {
+        modelResult = await client.query(
+          `INSERT INTO stmmodel (
+            stm_name, version, release_date, authorised_by, region, region_id, ecosystem_type,
+            aus_eco_archetype_code, aus_eco_archetype_name, aus_eco_umbrella_code, peer_reviewed, no_peer_reviewers, climate
+          )
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+          RETURNING id`,
+          [
+            stm_name, version, normalizedReleaseDate, authorised_by, region, region_id, ecosystem_type,
+            String(aus_eco_archetype_code), aus_eco_archetype_name, aus_eco_umbrella_code, peer_reviewed, no_peer_reviewers, climate
+          ]
+        );
+      } catch (err: any) {
+        // Check for Postgres unique constraint violation (conflict)
+        if (err.code === "23505") {
+          throw {
+            status: 409, // HTTP Conflict
+            message: `stmmodel with stm_name "${stm_name}" already exists`,
+          };
+        }
+        // Re-throw any other error
+        throw err;
+      }
     }
     // stmmodel id
     const modelId = modelResult.rows[0]?.id;
     return modelId;
 }
 
-// 2. TODO: Upsert contributors
+// TODO: 2. Upsert contributors
 async function upsertContributors(client: any, modelId: number, contributors: any[]) {
     if (contributors && contributors.length > 0) {
       for (const expert of contributors) {
