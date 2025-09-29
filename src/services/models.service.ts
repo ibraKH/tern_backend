@@ -328,20 +328,39 @@ async function upsertModelMetadata(client: any, modelData: BMRGData): Promise<nu
 
 }
 
-// TODO: 2. Upsert contributors
+// 2. Upsert contributors
 async function upsertContributors(client: any, modelId: number, contributors: any[]) {
   if (contributors && contributors.length > 0) {
     for (const expert of contributors) {
-      await client.query(
-        `INSERT INTO contributors (stm_id, name, email, contibution_type)
-           VALUES ($1, $2, $3, $4)`,
-        [
-          modelId,
-          expert.name,
-          expert.email || null,
-          expert.contribution_type // database column is "contibution_type" (typo)
-        ]
-      );
+      if(expert.contributor_id){
+        // --- UPDATE existing contributor with dynamic fields ---
+        const contUpdate = await buildDynamicUpdate(
+          client,
+          "contributors",
+          "id",
+          expert.contributor_id,
+          {
+            stm_id: modelId,
+            name: expert.name,
+            email: expert.email,
+            contibution_type: expert.contribution_type // database column is "contibution_type" (typo)
+          }
+        );
+
+      }else{
+        // --- INSERT new contributor ---
+        await client.query(
+          `INSERT INTO contributors (stm_id, name, email, contibution_type)
+            VALUES ($1, $2, $3, $4)`,
+          [
+            modelId,
+            expert.name,
+            expert.email,
+            expert.contribution_type // database column is "contibution_type" (typo)
+          ]
+        );
+      }
+
     }
   }
 }

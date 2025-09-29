@@ -9,6 +9,6 @@
     "outDir": "dist",
     "strict": true
   },
-  "include": ["test/**/*.ts"],
+  "include": ["src/**/*.ts"],
   "exclude": ["node_modules", "dist"]
 }
