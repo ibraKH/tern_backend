@@ -165,40 +165,40 @@ export async function getModelByName(name: string): Promise<BMRGData | null> {
 
 // ---------- Utility functions ----------
 function normalizeReleaseDate(release_date?: string): string | null {
-    // Normalize release_date (e.g., "Aug-24" → "YYYY-08-24", assuming current year)
-    let normalizedReleaseDate: string | null = null;
-    if (release_date) {
-      const monthMap: Record<string, string> = {
-        Jan: '01',
-        Feb: '02',
-        Mar: '03',
-        Apr: '04',
-        May: '05',
-        Jun: '06',
-        Jul: '07',
-        Aug: '08',
-        Sep: '09',
-        Oct: '10',
-        Nov: '11',
-        Dec: '12'
-      };
+  // Normalize release_date (e.g., "Aug-24" → "YYYY-08-24", assuming current year)
+  let normalizedReleaseDate: string | null = null;
+  if (release_date) {
+    const monthMap: Record<string, string> = {
+      Jan: '01',
+      Feb: '02',
+      Mar: '03',
+      Apr: '04',
+      May: '05',
+      Jun: '06',
+      Jul: '07',
+      Aug: '08',
+      Sep: '09',
+      Oct: '10',
+      Nov: '11',
+      Dec: '12'
+    };
 
-      const match = release_date.match(/^([A-Za-z]{3})-(\d{1,2})$/); // e.g., "Aug-24"
-      if (match) {
-        const [_, monthStr, yearStr] = match;
-        const monthNum = monthMap[monthStr];
-        if (monthNum) {
-          const fullYear = `20${yearStr.padStart(2,'0')}`; // "24" -> "2024"
-          normalizedReleaseDate = `${fullYear}-${monthNum}-01`; // Use first day of month
-        }
-      } else if (!isNaN(Date.parse(release_date))) {
-        normalizedReleaseDate = new Date(release_date).toISOString().split('T')[0]; // already in a valid date format
-      } else {
-        throw new Error(`Invalid release_date format: ${release_date}`);
+    const match = release_date.match(/^([A-Za-z]{3})-(\d{1,2})$/); // e.g., "Aug-24"
+    if (match) {
+      const [_, monthStr, yearStr] = match;
+      const monthNum = monthMap[monthStr];
+      if (monthNum) {
+        const fullYear = `20${yearStr.padStart(2, '0')}`; // "24" -> "2024"
+        normalizedReleaseDate = `${fullYear}-${monthNum}-01`; // Use first day of month
       }
+    } else if (!isNaN(Date.parse(release_date))) {
+      normalizedReleaseDate = new Date(release_date).toISOString().split('T')[0]; // already in a valid date format
+    } else {
+      throw new Error(`Invalid release_date format: ${release_date}`);
     }
+  }
 
-    return normalizedReleaseDate;
+  return normalizedReleaseDate;
 }
 
 // Build dynamic UPDATE query helper
@@ -223,7 +223,7 @@ async function buildDynamicUpdate(
 
   if (fields.length === 0) {
     // log('No fields to update for', tableName, 'id:', idValue);
-    return -1; // Nothing to update
+    return idValue; // Nothing to update
   }
 
   values.push(idValue); // last param is id
@@ -233,7 +233,7 @@ async function buildDynamicUpdate(
     WHERE ${idColumn} = $${values.length}
     RETURNING ${idColumn}
   `;
-  
+
   const result = await client.query(query, values);
 
   if (result.rows.length === 0) {
@@ -246,104 +246,104 @@ async function buildDynamicUpdate(
 // ---------- DB upsert helpers ----------
 // 1. Upsert main model
 async function upsertModelMetadata(client: any, modelData: BMRGData): Promise<number> {
-    const {
-      id,
+  const {
+    id,
+    stm_name,
+    version,
+    release_date,
+    authorised_by,
+    region,
+    region_id,
+    climate,
+    ecosystem_type,
+    aus_eco_archetype_code,
+    aus_eco_archetype_name,
+    aus_eco_umbrella_code,
+    peer_reviewed,
+    no_peer_reviewers,
+  } = modelData;
+  // Normalize release_date (e.g., "Aug-24" → "YYYY-08-24", assuming current year)
+  const normalizedReleaseDate = normalizeReleaseDate(release_date);
+  // modelId
+  let modelResult;
+  // Upsert main model data
+  if (id) {
+    // --- UPDATE existing record ---
+    // Build SET clause dynamically (only include fields that are not undefined)
+    const modelUpdate = buildDynamicUpdate(client, 'stmmodel', 'id', id, {
       stm_name,
       version,
-      release_date,
+      release_date: release_date != undefined ? normalizedReleaseDate : undefined,
       authorised_by,
       region,
       region_id,
-      climate,
       ecosystem_type,
-      aus_eco_archetype_code,
+      aus_eco_archetype_code: aus_eco_archetype_code !== undefined ? String(aus_eco_archetype_code) : undefined,
       aus_eco_archetype_name,
       aus_eco_umbrella_code,
       peer_reviewed,
       no_peer_reviewers,
-    } = modelData;
-    // Normalize release_date (e.g., "Aug-24" → "YYYY-08-24", assuming current year)
-    const normalizedReleaseDate = normalizeReleaseDate(release_date);
-    // modelId
-    let modelResult;
-    // Upsert main model data
-    if (id) {
-      // --- UPDATE existing record ---
-      // Build SET clause dynamically (only include fields that are not undefined)
-      const modelUpdate = buildDynamicUpdate(client, 'stmmodel', 'id', id, {
-        stm_name,
-        version,
-        release_date: release_date != undefined ? normalizedReleaseDate : undefined,
-        authorised_by,
-        region,
-        region_id,
-        ecosystem_type,
-        aus_eco_archetype_code: aus_eco_archetype_code !== undefined ? String(aus_eco_archetype_code) : undefined,
-        aus_eco_archetype_name,
-        aus_eco_umbrella_code,
-        peer_reviewed,
-        no_peer_reviewers,
-        climate,
-      });
+      climate,
+    });
 
-      return modelUpdate;
+    return modelUpdate;
 
-    }else{
-      // Insert new record or update if stm_name exists
-      // chreck region_id exists in regions table
-      if(region_id){
-        const regionCheck = await client.query('SELECT id FROM regions WHERE id = $1', [region_id]);
-        if (regionCheck.rows.length === 0) {
-          throw new Error(`region_id ${region_id} not exist regions table`);
-        }
+  } else {
+    // Insert new record or update if stm_name exists
+    // chreck region_id exists in regions table
+    if (region_id) {
+      const regionCheck = await client.query('SELECT id FROM regions WHERE id = $1', [region_id]);
+      if (regionCheck.rows.length === 0) {
+        throw new Error(`region_id ${region_id} not exist regions table`);
       }
-      try {
-        modelResult = await client.query(
-          `INSERT INTO stmmodel (
+    }
+    try {
+      modelResult = await client.query(
+        `INSERT INTO stmmodel (
             stm_name, version, release_date, authorised_by, region, region_id, ecosystem_type,
             aus_eco_archetype_code, aus_eco_archetype_name, aus_eco_umbrella_code, peer_reviewed, no_peer_reviewers, climate
           )
           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
           RETURNING id`,
-          [
-            stm_name, version, normalizedReleaseDate, authorised_by, region, region_id, ecosystem_type,
-            aus_eco_archetype_code, aus_eco_archetype_name, aus_eco_umbrella_code, peer_reviewed, no_peer_reviewers, climate
-          ]
-        );
-      } catch (err: any) {
-        // Check for Postgres unique constraint violation (conflict)
-        if (err.code === "23505") {
-          throw {
-            status: 409, // HTTP Conflict
-            message: `stmmodel with stm_name "${stm_name}" already exists`,
-          };
-        }
-        // Re-throw any other error
-        throw err;
+        [
+          stm_name, version, normalizedReleaseDate, authorised_by, region, region_id, ecosystem_type,
+          aus_eco_archetype_code, aus_eco_archetype_name, aus_eco_umbrella_code, peer_reviewed, no_peer_reviewers, climate
+        ]
+      );
+    } catch (err: any) {
+      // Check for Postgres unique constraint violation (conflict)
+      if (err.code === "23505") {
+        throw {
+          status: 409, // HTTP Conflict
+          message: `stmmodel with stm_name "${stm_name}" already exists`,
+        };
       }
-      // stmmodel id
-      const modelId = modelResult.rows[0]?.id;
-      return modelId;
+      // Re-throw any other error
+      throw err;
     }
+    // stmmodel id
+    const modelId = modelResult.rows[0]?.id;
+    return modelId;
+  }
 
 }
 
 // TODO: 2. Upsert contributors
 async function upsertContributors(client: any, modelId: number, contributors: any[]) {
-    if (contributors && contributors.length > 0) {
-      for (const expert of contributors) {
-        await client.query(
-          `INSERT INTO contributors (stm_id, name, email, contibution_type)
+  if (contributors && contributors.length > 0) {
+    for (const expert of contributors) {
+      await client.query(
+        `INSERT INTO contributors (stm_id, name, email, contibution_type)
            VALUES ($1, $2, $3, $4)`,
-          [
-            modelId,
-            expert.name,
-            expert.email || null,
-            expert.contribution_type // database column is "contibution_type" (typo)
-          ]
-        );
-      }
+        [
+          modelId,
+          expert.name,
+          expert.email || null,
+          expert.contribution_type // database column is "contibution_type" (typo)
+        ]
+      );
     }
+  }
 }
 
 // 3. Upsert states & vast_states & state_attributes
@@ -370,10 +370,10 @@ async function upsertStates(client: any, stm_name: string, states: any[]): Promi
         "Class VI": "ClassVI",
       };
 
-      if(!("vast_class" in state.vast_state)){
+      if (!("vast_class" in state.vast_state)) {
         vastClass = undefined; // not clearing the field
       }
-      
+
       // only map if it's provided and not null
       if (state.vast_state.vast_class) {
         vastClass = vastClassMap[state.vast_state.vast_class];
@@ -382,7 +382,7 @@ async function upsertStates(client: any, stm_name: string, states: any[]): Promi
         }
       }
 
-      if(state.vast_state.vast_state_id){
+      if (state.vast_state.vast_state_id) {
         // --- UPDATE existing vast_state with dynamic fields ---
         const vastUpdate = buildDynamicUpdate(
           client,
@@ -390,20 +390,20 @@ async function upsertStates(client: any, stm_name: string, states: any[]): Promi
           "id",
           state.vast_state.vast_state_id,
           {
-          vast_class: vastClass,
-          vast_name: state.vast_state.vast_name,
-          eks_overstorey_class: state.vast_state.eks_overstorey_class,
-          eks_understorey_class: state.vast_state.eks_understorey_class,
-          vast_condition_lower: state.vast_condition_lower,
-          vast_condition_upper: state.vast_condition_upper,
-          eks_substate_condition_estimate: state.eks_substate_condition_estimate,
-          eks_substate: state.vast_state.eks_substate,
-          link: state.vast_state.link,
-        });
+            vast_class: vastClass,
+            vast_name: state.vast_state.vast_name,
+            eks_overstorey_class: state.vast_state.eks_overstorey_class,
+            eks_understorey_class: state.vast_state.eks_understorey_class,
+            vast_condition_lower: state.vast_condition_lower,
+            vast_condition_upper: state.vast_condition_upper,
+            eks_substate_condition_estimate: state.eks_substate_condition_estimate,
+            eks_substate: state.vast_state.eks_substate,
+            link: state.vast_state.link,
+          });
 
         vastStateId = state.vast_state.vast_state_id;
 
-      }else{
+      } else {
         // --- INSERT new vast_state ---
         const vastResult = await client.query(
           `INSERT INTO vast_states (
@@ -431,7 +431,7 @@ async function upsertStates(client: any, stm_name: string, states: any[]): Promi
     // 3.2 Upsert state
     // ellictation_type must be one of the ENUM values in the database
     let elicitType = null;
-    if(!("elicitation_type" in state)){
+    if (!("elicitation_type" in state)) {
       elicitType = undefined; // not clearing the field
     }
     if (state.elicitation_type) {
@@ -445,7 +445,7 @@ async function upsertStates(client: any, stm_name: string, states: any[]): Promi
       }
     }
     let stateId = state.state_id; // may be undefined for new states
-    if(stateId){
+    if (stateId) {
       // --- UPDATE existing state ---
       const stateUpdate = await buildDynamicUpdate(
         client,
@@ -464,7 +464,7 @@ async function upsertStates(client: any, stm_name: string, states: any[]): Promi
       );
 
     }
-    else{
+    else {
       // --- INSERT new state ---
       const stateResult = await client.query(
         `INSERT INTO states (
@@ -492,7 +492,7 @@ async function upsertStates(client: any, stm_name: string, states: any[]): Promi
     // attributes need to be an array of objects with attribute_type, value, units
     if (state.attributes && Array.isArray(state.attributes)) {
       for (const attr of state.attributes) {
-        if(attr.state_attribute_id){
+        if (attr.state_attribute_id) {
           // --- UPDATE existing attribute with dynamic fields ---
           const attrUpdate = await buildDynamicUpdate(
             client,
@@ -506,7 +506,7 @@ async function upsertStates(client: any, stm_name: string, states: any[]): Promi
               units: attr.units
             }
           );
-        }else{
+        } else {
           // --- INSERT new attribute ---
           await client.query(
             `INSERT INTO state_attributes (state_id, attribute_type, value, units)
@@ -528,80 +528,169 @@ async function upsertStates(client: any, stm_name: string, states: any[]): Promi
   return stateIds;
 }
 
-// TODO: 4. Upsert transitions & causal_chain & drivers
-async function upsertTransitions(client: any, stm_name: string, states: number[], transitions: any[]) {
-  
+// 4. Upsert transitions & causal_chain & drivers
+async function upsertTransitions(client: any, stm_name: string, transitions: any[]): Promise<number[]> {
+  const transitionIds: number[] = [];
   for (const transition of transitions) {
     // There is notes field in the TransitionData type, but no such column in the database
-    // 4.1 Save transition
-    const transitionResult = await client.query(
-      `INSERT INTO transitions (
-        stm_name, start_state_id, end_state_id, transition_id,
-        time_100, time_25, likelihood_25, likelihood_100, transition_delta
-      )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-      RETURNING id
-      --ON CONFLICT (transition_id) DO NOTHING`,
-      [
-        // transition.id is serial in database, so don't insert it
-        stm_name,
-        // beacuse stateId is a serial, so here start_state_id is the current stateId to test
-        states[0], // Change to transition.start_state_id later
-        states[0], // Change to transition.end_state_id later
-        transition.transition_id,
-        transition.time_100,
-        transition.time_25,
-        transition.likelihood_25,
-        transition.likelihood_100,
-        transition.transition_delta
-      ]
-    );
-    const transitionId = transitionResult.rows[0].id;
+    // 4.1 Upsert transition
+    let transitionId = transition.id; // may be undefined for new transitions
 
-    // 4.2 Save causal_chain
-    for (const chain of transition.causal_chain || []) {
-      // traverse drivers
-      for (const driver of chain.drivers || []) {
-        // find or insert driver
-        let driverId: number | null = null;
-        const driverResult = await client.query(
-          `SELECT id FROM drivers WHERE driver = $1 AND driver_group = $2`,
-          [driver.driver, driver.driver_group]
-        );
-        if (driverResult.rows.length > 0) {
-          driverId = driverResult.rows[0].id;
-        } else {
-          const insertDriver = await client.query(
-            `INSERT INTO drivers (driver, driver_group) VALUES ($1, $2) RETURNING id`,
-            [driver.driver, driver.driver_group]
-          );
-          driverId = insertDriver.rows[0].id;
+    if (transitionId) {
+      // --- UPDATE existing transition with dynamic fields ---
+      const transUpdate = await buildDynamicUpdate(
+        client,
+        "transitions",
+        "id",
+        transitionId,
+        {
+          stm_name: stm_name,
+          start_state_id: transition.start_state_id,  // start_state_id and end_state_id must exist in states table 
+          end_state_id: transition.end_state_id,
+          transition_id: transition.transition_id,   // is not the id of the transition, Links to the Australianeco_arche type and MVG cross walk.
+          time_100: transition.time_100,
+          time_25: transition.time_25,
+          likelihood_25: transition.likelihood_25,
+          likelihood_100: transition.likelihood_100,
+          transition_delta: transition.transition_delta
         }
+      );
+
+    } else {
+      // --- INSERT new transition ---
+
+      const transitionResult = await client.query(
+        `INSERT INTO transitions (
+          stm_name, start_state_id, end_state_id, transition_id,
+          time_100, time_25, likelihood_25, likelihood_100, transition_delta
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        RETURNING id`,
+        [
+          // transition.id is serial in database, so don't insert it
+          stm_name,
+          transition.start_state_id,  // start_state_id and end_state_id must exist in states table
+          transition.end_state_id,
+          transition.transition_id,   // is not the id of the transition, Links to the Australianeco_arche type and MVG cross walk.
+          transition.time_100,
+          transition.time_25,
+          transition.likelihood_25,
+          transition.likelihood_100,
+          transition.transition_delta
+        ]
+      );
+      transitionId = transitionResult.rows[0].id;
+      transitionIds.push(transitionId);
+    }
+
+    // 4.2 Upsert causal_chain & drivers
+    for (const chain of transition.causal_chain || []) {
+
+      // 4.2.1 Upsert drivers
+      let driverIds: number[] = [];
+      for (const driver of chain.drivers || []) {
+        let driverId = driver.driver_id;  // may be undefined for new drivers
+        if (driverId) {
+          // --- UPDATE existing driver with dynamic fields ---
+          const driverUpdate = await buildDynamicUpdate(
+            client,
+            "drivers",
+            "id",
+            driverId,
+            {
+              driver: driver.driver,
+              description: driver.description,
+              driver_group: driver.driver_group
+            }
+          );
+        } else {
+          // --- INSERT new driver ---
+          const driverResult = await client.query(
+            `INSERT INTO drivers (driver, description, driver_group)
+            VALUES ($1, $2, $3)
+            RETURNING id`,
+            [
+              driver.driver,
+              driver.description,
+              driver.driver_group
+            ]
+          );
+          driverId = driverResult.rows[0].id;
+          driverIds.push(driverId);
+        }
+
+        // 4.2.2 Upsert causal_chain
+        let chainId = chain.causal_chain_id // may be undefined for new causal_chain
         // normalize chain_part to match ENUM in the database
         const chainPartMap: Record<string, string> = {
           "management intervention": "Management Intervention",
           "favorable abiotic factor": "Favorable abiotic factor",
-          "favourable abiotic factor":"Favorable abiotic factor",
+          "favourable abiotic factor": "Favorable abiotic factor",
           "biotic process": "Biotic process",
           "hazard": "Hazard"
         };
-        const chainPart = chain.chain_part
-          ? chainPartMap[chain.chain_part.toLowerCase()] || chain.chain_part
-          : null;
-        // insert causal_chain
-        await client.query(
-          `INSERT INTO causal_chain (transition_id, chain_part, name, driver_id)
-          VALUES ($1, $2, $3, $4)`,
-          [
-            transitionId,
-            chainPart,
-            driver.driver,
-            driverId
-          ]
-        );
+        let chainPart = chain.chain_part;
+        if (!("chain_part" in chain)) {
+          chainPart = undefined; // not clearing the field
+        } else if (chain.chain_part) {
+          chainPart = chainPartMap[chainPart.toLowerCase()];
+          if (!chainPart) {
+            throw new Error(`Invalid chain_part: ${chain.chain_part}`);
+          }
+        }
+
+        // Ensure transition_id is set in the causal_chain
+        let transition_id_aus = transition.transition_id;
+        if (transition_id_aus === undefined) {
+          const result = await client.query(
+            `SELECT transition_id FROM transitions
+            WHERE id = $1`,
+            [transitionId]
+          );
+
+          if (result.rows.length > 0) {
+            transition_id_aus = result.rows[0].transition_id;
+          } else {
+            throw new Error(`transition_id not found for transition with stm_name ${stm_name}, start_state_id ${transition.start_state_id}, end_state_id ${transition.end_state_id}`);
+          }
+        }
+
+
+        if (chainId) {
+          // --- UPDATE existing causal_chain with dynamic fields ---
+          const chainUpdate = await buildDynamicUpdate(
+            client,
+            "causal_chain",
+            "id",
+            chainId,
+            {
+              transition_id: transition_id_aus,
+              name: chain.name,
+              chain_part: chainPart,
+              driver_id: driverId
+            }
+          );
+        } else {
+          const chainResult = await client.query(
+            `INSERT INTO causal_chain (transition_id, name, chain_part, driver_id)
+            VALUES ($1, $2, $3, $4)`,
+            [
+              transition_id_aus,
+              chain.name,
+              chainPart,
+              driverId
+            ]
+          );
+          chainId = chainResult.rows[0]?.id;
+        }
+
       }
+
     }
+
   }
+
+  return transitionIds;
 }
 
 // Save a new model
@@ -612,19 +701,32 @@ export async function saveModel(modelData: BMRGData) {
 
     // 1. Upsert main model
     const modelId = await upsertModelMetadata(client, modelData);
+    // If stm_name not provided in modelData, fetch it from the database using modelId
+    let stm_name = modelData.stm_name;
+    if (!stm_name || stm_name.trim() === "") {
+      const res = await client.query(
+        `SELECT stm_name FROM stmmodel WHERE id = $1`,
+        [modelId]
+      );
+      if (res.rows.length > 0) {
+        stm_name = res.rows[0].stm_name;
+      } else {
+        throw new Error(`stm_name not found for model id ${modelId}`);
+      }
+    }
     // 2. Upsert contributors
-    if(modelData.contributing_experts != undefined && modelData.contributing_experts!= null){
+    if (modelData.contributing_experts != undefined && modelData.contributing_experts != null) {
       await upsertContributors(client, modelId, modelData.contributing_experts);
     }
     // 3. Upsert states & vast_states & state_attributes
-    if(modelData.states != undefined && modelData.states!= null){
-      const stateIds = await upsertStates(client, modelData.stm_name, modelData.states);
-  
-      // 4. Upsert transitions & causal_chain & drivers
-      // will move out of the if block later(because transitions can be there without stateIds)
-      if(modelData.transitions != undefined && modelData.transitions!= null){
-        await upsertTransitions(client, modelData.stm_name, stateIds, modelData.transitions);
-      }
+    let stateIds: number[] = [];
+    if (modelData.states != undefined && modelData.states != null) {
+      stateIds = await upsertStates(client, stm_name, modelData.states);
+    }
+    // 4. Upsert transitions & causal_chain & drivers
+    let transitionIds: number[] = [];
+    if (modelData.transitions != undefined && modelData.transitions != null) {
+      transitionIds = await upsertTransitions(client, stm_name, modelData.transitions);
     }
 
     // // 5. Save method_alignment（it's "None" and it don't insert for now)
@@ -638,7 +740,7 @@ export async function saveModel(modelData: BMRGData) {
     await client.query('COMMIT');
     return { modelId };
 
-} catch (error) {
+  } catch (error) {
     await client.query('ROLLBACK');
     throw error;
   } finally {
