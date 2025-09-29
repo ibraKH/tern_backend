@@ -201,6 +201,48 @@ function normalizeReleaseDate(release_date?: string): string | null {
     return normalizedReleaseDate;
 }
 
+// Build dynamic UPDATE query helper
+async function buildDynamicUpdate(
+  client: any,
+  tableName: string,
+  idColumn: string,
+  idValue: any,
+  updateMap: Record<string, any>
+): Promise<any | null> {
+  // Build SET clause dynamically (only include fields that are not undefined)
+  const fields: string[] = [];
+  const values: any[] = [];
+
+  for (const [key, value] of Object.entries(updateMap)) {
+    // Skip undefined (not provided), but include null (to clear the field)
+    if (value !== undefined) {
+      fields.push(`${key} = $${values.length + 1}`);
+      values.push(value); // null will clear the column
+    }
+  }
+
+  if (fields.length === 0) {
+    // log('No fields to update for', tableName, 'id:', idValue);
+    return -1; // Nothing to update
+  }
+
+  values.push(idValue); // last param is id
+  const query = `
+    UPDATE ${tableName}
+    SET ${fields.join(", ")}
+    WHERE ${idColumn} = $${values.length}
+    RETURNING ${idColumn}
+  `;
+  
+  const result = await client.query(query, values);
+
+  if (result.rows.length === 0) {
+    throw { status: 404, message: `${tableName} with ${idColumn}=${idValue} not found` };
+  }
+
+  return idValue;
+}
+
 // ---------- DB upsert helpers ----------
 // 1. Upsert main model
 async function upsertModelMetadata(client: any, modelData: BMRGData): Promise<number> {
@@ -222,20 +264,16 @@ async function upsertModelMetadata(client: any, modelData: BMRGData): Promise<nu
     } = modelData;
     // Normalize release_date (e.g., "Aug-24" → "YYYY-08-24", assuming current year)
     const normalizedReleaseDate = normalizeReleaseDate(release_date);
-
     // modelId
     let modelResult;
     // Upsert main model data
     if (id) {
       // --- UPDATE existing record ---
       // Build SET clause dynamically (only include fields that are not undefined)
-      const fields: string[] = [];
-      const values: any[] = [];
-
-      const updateMap: Record<string, any> = {
+      const modelUpdate = buildDynamicUpdate(client, 'stmmodel', 'id', id, {
         stm_name,
         version,
-        release_date,
+        release_date: release_date != undefined ? normalizedReleaseDate : undefined,
         authorised_by,
         region,
         region_id,
@@ -246,46 +284,18 @@ async function upsertModelMetadata(client: any, modelData: BMRGData): Promise<nu
         peer_reviewed,
         no_peer_reviewers,
         climate,
-      };
-      
-      if(release_date != undefined){
-        updateMap['release_date'] = normalizedReleaseDate;
-      }
-        
-      let i = 1;
-      for (const [key, value] of Object.entries(updateMap)) {
-        if (value !== undefined) {
-          fields.push(`${key} = $${i}`);
-          values.push(value); // null will clear the column
-          i++;
-        }
-      }
+      });
 
-      if (fields.length === 0) {
-        throw { status: 400, message: "No fields to update" };
-      }
-
-      values.push(id); // last param is id
-      const query = `
-        UPDATE stmmodel
-        SET ${fields.join(", ")}
-        WHERE id = $${i}
-        RETURNING id
-      `;
-
-      modelResult = await client.query(query, values);
-
-      // Ensure record exists
-      if (modelResult.rows.length === 0) {
-        throw { status: 404, message: `stmmodel with id ${id} not found` };
-      }
+      return modelUpdate;
 
     }else{
       // Insert new record or update if stm_name exists
       // chreck region_id exists in regions table
-      const regionCheck = await client.query('SELECT id FROM regions WHERE id = $1', [region_id]);
-      if (regionCheck.rows.length === 0) {
-        throw new Error(`region_id ${region_id} not exist regions table`);
+      if(region_id){
+        const regionCheck = await client.query('SELECT id FROM regions WHERE id = $1', [region_id]);
+        if (regionCheck.rows.length === 0) {
+          throw new Error(`region_id ${region_id} not exist regions table`);
+        }
       }
       try {
         modelResult = await client.query(
@@ -297,7 +307,7 @@ async function upsertModelMetadata(client: any, modelData: BMRGData): Promise<nu
           RETURNING id`,
           [
             stm_name, version, normalizedReleaseDate, authorised_by, region, region_id, ecosystem_type,
-            String(aus_eco_archetype_code), aus_eco_archetype_name, aus_eco_umbrella_code, peer_reviewed, no_peer_reviewers, climate
+            aus_eco_archetype_code, aus_eco_archetype_name, aus_eco_umbrella_code, peer_reviewed, no_peer_reviewers, climate
           ]
         );
       } catch (err: any) {
@@ -311,10 +321,11 @@ async function upsertModelMetadata(client: any, modelData: BMRGData): Promise<nu
         // Re-throw any other error
         throw err;
       }
+      // stmmodel id
+      const modelId = modelResult.rows[0]?.id;
+      return modelId;
     }
-    // stmmodel id
-    const modelId = modelResult.rows[0]?.id;
-    return modelId;
+
 }
 
 // TODO: 2. Upsert contributors
@@ -335,7 +346,7 @@ async function upsertContributors(client: any, modelId: number, contributors: an
     }
 }
 
-// TODO: 3. Upsert states & vast_states & state_attributes
+// 3. Upsert states & vast_states & state_attributes
 async function upsertStates(client: any, stm_name: string, states: any[]): Promise<number[]> {
   const stateIds: number[] = [];
 
@@ -343,7 +354,12 @@ async function upsertStates(client: any, stm_name: string, states: any[]): Promi
     // 3.1 Upsert vast_state
     // There is vast_eks_state in the StateData type, but no such column in the database
     let vastStateId = null;
+    if (!('vast_state' in state)) {
+      vastStateId = undefined;// not clearing the field
+    }
     if (state.vast_state) {
+      // --- UPSERT vast_state ---
+      let vastClass = null;
       // Map vast_class to match ENUM in the database
       const vastClassMap: Record<string, string> = {
         "Class I": "ClassI",
@@ -354,40 +370,70 @@ async function upsertStates(client: any, stm_name: string, states: any[]): Promi
         "Class VI": "ClassVI",
       };
 
-      if (!state.vast_state?.vast_class) {
-        throw new Error("Missing vast_class in state.vast_state");
+      if(!("vast_class" in state.vast_state)){
+        vastClass = undefined; // not clearing the field
+      }
+      
+      // only map if it's provided and not null
+      if (state.vast_state.vast_class) {
+        vastClass = vastClassMap[state.vast_state.vast_class];
+        if (!vastClass) {
+          throw new Error(`Invalid vast_class: ${state.vast_state.vast_class}`);
+        }
       }
 
-      const vastClass = vastClassMap[state.vast_state.vast_class];
-      if (!vastClass) {
-        throw new Error(`Invalid vast_class: ${state.vast_state.vast_class}`);
+      if(state.vast_state.vast_state_id){
+        // --- UPDATE existing vast_state with dynamic fields ---
+        const vastUpdate = buildDynamicUpdate(
+          client,
+          "vast_states",
+          "id",
+          state.vast_state.vast_state_id,
+          {
+          vast_class: vastClass,
+          vast_name: state.vast_state.vast_name,
+          eks_overstorey_class: state.vast_state.eks_overstorey_class,
+          eks_understorey_class: state.vast_state.eks_understorey_class,
+          vast_condition_lower: state.vast_condition_lower,
+          vast_condition_upper: state.vast_condition_upper,
+          eks_substate_condition_estimate: state.eks_substate_condition_estimate,
+          eks_substate: state.vast_state.eks_substate,
+          link: state.vast_state.link,
+        });
+
+        vastStateId = state.vast_state.vast_state_id;
+
+      }else{
+        // --- INSERT new vast_state ---
+        const vastResult = await client.query(
+          `INSERT INTO vast_states (
+            vast_class, vast_name, eks_overstorey_class, eks_understorey_class,
+            vast_condition_lower, vast_condition_upper, eks_substate_condition_estimate,
+            eks_substate, link
+          ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+          RETURNING id`,
+          [
+            vastClass,
+            state.vast_state.vast_name,
+            state.vast_state.eks_overstorey_class,
+            state.vast_state.eks_understorey_class,
+            state.vast_condition_lower,
+            state.vast_condition_upper,
+            state.eks_substate_condition_estimate,
+            state.vast_state.eks_substate,
+            state.vast_state.link
+          ]
+        );
+        vastStateId = vastResult.rows[0]?.id;
       }
-      // Insert new vast_state
-      const vastResult = await client.query(
-        `INSERT INTO vast_states (
-          vast_class, vast_name, eks_overstorey_class, eks_understorey_class,
-          vast_condition_lower, vast_condition_upper, eks_substate_condition_estimate,
-          eks_substate, link
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-        RETURNING id`,
-        [
-          vastClass,
-          state.vast_state.vast_name,
-          state.vast_state.eks_overstorey_class,
-          state.vast_state.eks_understorey_class,
-          null, // vast_condition_lower
-          null, // vast_condition_upper
-          null, // eks_substate_condition_estimate
-          state.vast_state.eks_substate,
-          state.vast_state.link
-        ]
-      );
-      vastStateId = vastResult.rows[0]?.id;
     }
 
-    // 3.2 Save state
+    // 3.2 Upsert state
     // ellictation_type must be one of the ENUM values in the database
     let elicitType = null;
+    if(!("elicitation_type" in state)){
+      elicitType = undefined; // not clearing the field
+    }
     if (state.elicitation_type) {
       // Normalize the elicitation_type to match ENUM values
       if (state.elicitation_type.toLowerCase() === 'pilot region') {
@@ -395,48 +441,88 @@ async function upsertStates(client: any, stm_name: string, states: any[]): Promi
       } else if (state.elicitation_type.toLowerCase() === 'neap estimate') {
         elicitType = 'NEAP estimate';
       } else {
-        elicitType = state.elicitation_type;
+        throw new Error(`Invalid elicitation_type: ${state.elicitation_type}`);
       }
     }
-    const stateResult = await client.query(
-      `INSERT INTO states (
-        stm_name, state_name, vast_state_id, eks_condition_estimate,
-        condition_lower, condition_upper, ellictation_type
-      )
-      VALUES ($1, $2, $3, $4, $5, $6, $7)
-      RETURNING id`,
-      [
-        // state.id is serial in database, so don't insert it
-        stm_name,
-        state.state_name,
-        vastStateId,
-        state.eks_condition_estimate,
-        state.condition_lower,
-        state.condition_upper,
-        elicitType
-      ]
-    );
-    const stateId = stateResult.rows[0]?.id;
-    stateIds.push(stateId);
+    let stateId = state.state_id; // may be undefined for new states
+    if(stateId){
+      // --- UPDATE existing state ---
+      const stateUpdate = await buildDynamicUpdate(
+        client,
+        "states",
+        "id",
+        state.state_id,
+        {
+          stm_name: stm_name,
+          state_name: state.state_name,
+          vast_state_id: vastStateId,
+          eks_condition_estimate: state.eks_condition_estimate,
+          condition_lower: state.condition_lower,
+          condition_upper: state.condition_upper,
+          ellictation_type: elicitType,
+        }
+      );
 
-    // 3.3 Save state_attributes
+    }
+    else{
+      // --- INSERT new state ---
+      const stateResult = await client.query(
+        `INSERT INTO states (
+          stm_name, state_name, vast_state_id, eks_condition_estimate,
+          condition_lower, condition_upper, ellictation_type
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        RETURNING id`,
+        [
+          // state.id is serial in database, so don't insert it
+          stm_name,
+          state.state_name,
+          vastStateId,
+          state.eks_condition_estimate,
+          state.condition_lower,
+          state.condition_upper,
+          elicitType
+        ]
+      );
+      stateId = stateResult.rows[0]?.id;
+      stateIds.push(stateId);
+    }
+
+    // 3.3 Upsert state_attributes
     // attributes need to be an array of objects with attribute_type, value, units
-    // now it's null
     if (state.attributes && Array.isArray(state.attributes)) {
       for (const attr of state.attributes) {
-        await client.query(
-          `INSERT INTO state_attributes (state_id, attribute_type, value, units)
-            VALUES ($1, $2, $3, $4)
-            --ON CONFLICT (id) DO NOTHING`,
-          [
-            stateId,
-            attr.attribute_type, // must match the ENUM in the database
-            attr.value,
-            attr.units
-          ]
-        );
+        if(attr.state_attribute_id){
+          // --- UPDATE existing attribute with dynamic fields ---
+          const attrUpdate = await buildDynamicUpdate(
+            client,
+            "state_attributes",
+            "id",
+            attr.state_attribute_id,
+            {
+              state_id: stateId,
+              attribute_type: attr.attribute_type, // must match the ENUM in the database
+              value: attr.value,
+              units: attr.units
+            }
+          );
+        }else{
+          // --- INSERT new attribute ---
+          await client.query(
+            `INSERT INTO state_attributes (state_id, attribute_type, value, units)
+              VALUES ($1, $2, $3, $4)
+              --ON CONFLICT (id) DO NOTHING`,
+            [
+              stateId,
+              attr.attribute_type, // must match the ENUM in the database
+              attr.value,
+              attr.units
+            ]
+          );
+        }
       }
     }
+
   }
 
   return stateIds;
@@ -527,18 +613,27 @@ export async function saveModel(modelData: BMRGData) {
     // 1. Upsert main model
     const modelId = await upsertModelMetadata(client, modelData);
     // 2. Upsert contributors
-    await upsertContributors(client, modelId, modelData.contributing_experts);
-    // 3. Upsert states & vast_states & state_attributes
-    const stateIds = await upsertStates(client, modelData.stm_name, modelData.states);
-    // 4. Upsert transitions & causal_chain & drivers
-    await upsertTransitions(client, modelData.stm_name, stateIds, modelData.transitions);
-    // 5. Save method_alignment（it's "None" and it don't insert for now)
-    if (modelData.method_alignment && modelData.method_alignment!== "None") {
-        // will implement later
-        console.log("method_alignment to be implemented:", modelData.method_alignment);
-    } else {
-      console.log("No method_alignment provided or it's 'None'");
+    if(modelData.contributing_experts != undefined && modelData.contributing_experts!= null){
+      await upsertContributors(client, modelId, modelData.contributing_experts);
     }
+    // 3. Upsert states & vast_states & state_attributes
+    if(modelData.states != undefined && modelData.states!= null){
+      const stateIds = await upsertStates(client, modelData.stm_name, modelData.states);
+  
+      // 4. Upsert transitions & causal_chain & drivers
+      // will move out of the if block later(because transitions can be there without stateIds)
+      if(modelData.transitions != undefined && modelData.transitions!= null){
+        await upsertTransitions(client, modelData.stm_name, stateIds, modelData.transitions);
+      }
+    }
+
+    // // 5. Save method_alignment（it's "None" and it don't insert for now)
+    // if (modelData.method_alignment && modelData.method_alignment!== "None") {
+    //     // will implement later
+    //     console.log("method_alignment to be implemented:", modelData.method_alignment);
+    // } else {
+    //   console.log("No method_alignment provided or it's 'None'");
+    // }
 
     await client.query('COMMIT');
     return { modelId };
