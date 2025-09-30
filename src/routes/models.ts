@@ -12,6 +12,7 @@ models.get('/all', async (req: Request, res: Response) => {
     const modelNames = await getAllModels();
     res.json(modelNames);
   } catch (error) {
+    console.error(error);
     res.status(500).json({ message: 'Error fetching model names', error });
   }
 });
