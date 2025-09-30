@@ -4,16 +4,6 @@ import e from 'express';
 import { error, log } from 'console';
 
 
-console.log('PG_USER:', process.env.PG_USER, typeof process.env.PG_USER
-);
-console.log('PG_PASSWORD:', process.env.PG_PASSWORD, typeof process.env.PG_PASSWORD
-);
-console.log('PG_HOST:', process.env.PG_HOST, typeof process.env.PG_HOST
-);
-console.log('PG_DB:', process.env.PG_DB, typeof process.env.PG_DB
-);
-console.log('PG_PORT:', process.env.PG_PORT, typeof process.env.PG_PORT
-);
 // Get all model names
 export async function getAllModels() {
   const client = await pool.connect();
@@ -28,152 +18,130 @@ export async function getAllModels() {
   }
 }
 
-// --- Fetch model basic info ---
-async function fetchModelBasicInfo(client: any, name: string) {
-  const res = await client.query(
-    `SELECT id, stm_name, version, release_date, authorised_by,
-            region, region_id, ecosystem_type,
-            aus_eco_archetype_code, aus_eco_archetype_name,
-            aus_eco_umbrella_code, peer_reviewed,
-            no_peer_reviewers, climate
-     FROM stmmodel
-     WHERE stm_name = $1`,
-    [name]
-  );
-  return res.rows[0] || null;
-}
-
-// --- Fetch contributors ---
-async function fetchContributors(client: any, stmId: number) {
-  const res = await client.query(
-    `SELECT name, email, contibution_type
-     FROM contributors
-     WHERE stm_id = $1`,
-    [stmId]
-  );
-  return res.rows;
-}
-
-// --- Fetch states and attributes ---
-async function fetchStates(client: any, stmName: string): Promise<StateData[]> {
-  const statesRes = await client.query(
-    `SELECT s.id, s.state_name, s.eks_condition_estimate,
-            s.condition_lower, s.condition_upper, s.ellictation_type,
-            v.vast_class, v.vast_name, v.eks_overstorey_class,
-            v.eks_understorey_class, v.eks_substate, v.link
-     FROM states s
-     LEFT JOIN vast_states v ON s.vast_state_id = v.id
-     WHERE s.stm_name = $1`,
-    [stmName]
-  );
-
-  const states: StateData[] = [];
-  for (const s of statesRes.rows) {
-    const attrsRes = await client.query(
-      `SELECT attribute_type, value, units
-       FROM state_attributes
-       WHERE state_id = $1`,
-      [s.id]
-    );
-
-    states.push({
-      state_id: s.id,
-      state_name: s.state_name,
-      vast_state: {
-        vast_class: s.vast_class,
-        vast_name: s.vast_name,
-        vast_eks_state: s.eks_condition_estimate,
-        eks_overstorey_class: s.eks_overstorey_class,
-        eks_understorey_class: s.eks_understorey_class,
-        eks_substate: s.eks_substate,
-        link: s.link,
-      },
-      condition_upper: s.condition_upper,
-      condition_lower: s.condition_lower,
-      eks_condition_estimate: s.eks_condition_estimate,
-      elicitation_type: s.ellictation_type,
-      attributes: attrsRes.rows,
-    });
-  }
-  return states;
-}
-
-// --- Fetch transitions and causal chain ---
-async function fetchTransitions(
-  client: any,
-  stmName: string,
-  states: StateData[]
-): Promise<TransitionData[]> {
-  const transRes = await client.query(
-    `SELECT t.id, t.stm_name, t.start_state_id, t.end_state_id,
-            t.time_25, t.time_100, t.likelihood_25, t.likelihood_100,
-            t.transition_delta
-     FROM transitions t
-     WHERE t.stm_name = $1`,
-    [stmName]
-  );
-
-  const transitions: TransitionData[] = [];
-  for (const t of transRes.rows) {
-    const startState = states.find(s => s.state_id === t.start_state_id);
-    const endState = states.find(s => s.state_id === t.end_state_id);
-
-    const causalRes = await client.query(
-      `SELECT name, chain_part, driver_id
-       FROM causal_chain
-       WHERE transition_id = $1`,
-      [t.id]
-    );
-
-    transitions.push({
-      transition_id: t.id,
-      stm_name: t.stm_name,
-      start_state: startState?.state_name || '',
-      start_state_id: t.start_state_id,
-      end_state: endState?.state_name || '',
-      end_state_id: t.end_state_id,
-      time_25: t.time_25,
-      time_100: t.time_100,
-      likelihood_25: t.likelihood_25,
-      likelihood_100: t.likelihood_100,
-      notes: '',
-      causal_chain: causalRes.rows,
-      transition_delta: t.transition_delta,
-    });
-  }
-  return transitions;
-}
-
-// --- Fetch method alignment ---
-async function fetchMethodAlignment(client: any, stmName: string) {
-  const res = await client.query(
-    `SELECT method_name
-     FROM method_alignment
-     WHERE stm_name = $1
-     LIMIT 1`,
-    [stmName]
-  );
-  return res.rows[0]?.method_name || '';
-}
-
-// --- Main function: orchestrates all fetches ---
+// Get model details by name, including states and transitions
 export async function getModelByName(name: string): Promise<BMRGData | null> {
   const client = await pool.connect();
   try {
-    const row = await fetchModelBasicInfo(client, name);
-    if (!row) return null;
+    // Get model basic info
+    const modelRes = await client.query(
+      `SELECT id, stm_name, version, release_date, authorised_by,
+              region, region_id, ecosystem_type,
+              aus_eco_archetype_code, aus_eco_archetype_name,
+              aus_eco_umbrella_code, peer_reviewed,
+              no_peer_reviewers, climate
+       FROM stmmodel
+       WHERE stm_name = $1`,
+      [name]
+    );
 
-    const contributors = await fetchContributors(client, row.id);
-    const states = await fetchStates(client, row.stm_name);
-    const transitions = await fetchTransitions(client, row.stm_name, states);
-    const method_alignment = await fetchMethodAlignment(client, row.stm_name);
+    if (modelRes.rows.length === 0) {
+      return null;
+    }
+    const row = modelRes.rows[0];
+
+    // Get contributors
+    const contributorsRes = await client.query(
+      `SELECT name, email, contibution_type
+       FROM contributors
+       WHERE stm_id = $1`,
+      [row.id]
+    );
+
+    // Get states + vast_states + state_attributes
+    const statesRes = await client.query(
+      `SELECT s.id, s.state_name, s.eks_condition_estimate,
+              s.condition_lower, s.condition_upper, s.ellictation_type,
+              v.vast_class, v.vast_name, v.eks_overstorey_class,
+              v.eks_understorey_class, v.eks_substate, v.link
+       FROM states s
+       LEFT JOIN vast_states v ON s.vast_state_id = v.id
+       WHERE s.stm_name = $1`,
+      [name]
+    );
+
+    const states: StateData[] = [];
+    for (const s of statesRes.rows) {
+      const attrsRes = await client.query(
+        `SELECT attribute_type, value, units
+         FROM state_attributes
+         WHERE state_id = $1`,
+        [s.id]
+      );
+
+      states.push({
+        state_id: s.id,
+        state_name: s.state_name,
+        vast_state: {
+          vast_class: s.vast_class,
+          vast_name: s.vast_name,
+          vast_eks_state: s.eks_condition_estimate,
+          eks_overstorey_class: s.eks_overstorey_class,
+          eks_understorey_class: s.eks_understorey_class,
+          eks_substate: s.eks_substate,
+          link: s.link,
+        },
+        condition_upper: s.condition_upper,
+        condition_lower: s.condition_lower,
+        eks_condition_estimate: s.eks_condition_estimate,
+        elicitation_type: s.ellictation_type,
+        attributes: attrsRes.rows,
+      });
+    }
+
+    // Get transitions + causal_chain
+    const transRes = await client.query(
+      `SELECT t.id, t.stm_name, t.start_state_id, t.end_state_id,
+              t.time_25, t.time_100, t.likelihood_25, t.likelihood_100,
+              t.transition_delta
+       FROM transitions t
+       WHERE t.stm_name = $1`,
+      [name]
+    );
+
+    const transitions: TransitionData[] = [];
+    for (const t of transRes.rows) {
+      const startState = states.find(s => s.state_id === t.start_state_id);
+      const endState = states.find(s => s.state_id === t.end_state_id);
+
+      const causalRes = await client.query(
+        `SELECT name, chain_part, driver_id
+         FROM causal_chain
+         WHERE transition_id = $1`,
+        [t.id]
+      );
+
+      transitions.push({
+        transition_id: t.id,
+        stm_name: t.stm_name,
+        start_state: startState?.state_name || '',
+        start_state_id: t.start_state_id,
+        end_state: endState?.state_name || '',
+        end_state_id: t.end_state_id,
+        time_25: t.time_25,
+        time_100: t.time_100,
+        likelihood_25: t.likelihood_25,
+        likelihood_100: t.likelihood_100,
+        notes: '',
+        causal_chain: causalRes.rows,
+        transition_delta: t.transition_delta,
+      });
+    }
+
+    // Get method_alignment（1st method_name）
+    const methodRes = await client.query(
+      `SELECT method_name
+       FROM method_alignment
+       WHERE stm_name = $1
+       LIMIT 1`,
+      [name]
+    );
 
     const model: BMRGData = {
       stm_name: row.stm_name,
       version: row.version,
       release_date: row.release_date,
       authorised_by: row.authorised_by,
-      contributing_experts: contributors,
+      contributing_experts: contributorsRes.rows,
       region: row.region,
       region_id: row.region_id,
       climate: row.climate,
@@ -185,7 +153,7 @@ export async function getModelByName(name: string): Promise<BMRGData | null> {
       no_peer_reviewers: row.no_peer_reviewers,
       states,
       transitions,
-      method_alignment,
+      method_alignment: methodRes.rows[0]?.method_name || '',
     };
 
     return model;
@@ -193,7 +161,6 @@ export async function getModelByName(name: string): Promise<BMRGData | null> {
     client.release();
   }
 }
-
 
 
 export async function saveModel(modelData: BMRGData) {
