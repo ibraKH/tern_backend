@@ -34,6 +34,7 @@ export interface TransitionData {
 }
 
 export interface BMRGData {
+    id?: number;
     stm_name: string;
     version: string;
     release_date: string;
