@@ -164,7 +164,7 @@ export async function getModelByName(name: string): Promise<BMRGData | null> {
 
 
 // ---------- Utility functions ----------
-function normalizeReleaseDate(release_date?: string): string | null {
+export function normalizeReleaseDate(release_date?: string): string | null {
   // Normalize release_date (e.g., "Aug-24" → "YYYY-08-24", assuming current year)
   let normalizedReleaseDate: string | null = null;
   if (release_date) {
@@ -202,7 +202,7 @@ function normalizeReleaseDate(release_date?: string): string | null {
 }
 
 // Build dynamic UPDATE query helper
-async function buildDynamicUpdate(
+export async function buildDynamicUpdate(
   client: any,
   tableName: string,
   idColumn: string,
@@ -245,7 +245,7 @@ async function buildDynamicUpdate(
 
 // ---------- DB upsert helpers ----------
 // 1. Upsert main model
-async function upsertModelMetadata(client: any, modelData: BMRGData): Promise<number> {
+export async function upsertModelMetadata(client: any, modelData: BMRGData): Promise<number> {
   const {
     id,
     stm_name,
@@ -329,7 +329,7 @@ async function upsertModelMetadata(client: any, modelData: BMRGData): Promise<nu
 }
 
 // 2. Upsert contributors
-async function upsertContributors(client: any, modelId: number, contributors: any[]) {
+export async function upsertContributors(client: any, modelId: number, contributors: any[]) {
   if (contributors && contributors.length > 0) {
     for (const expert of contributors) {
       if(expert.contributor_id){
@@ -366,7 +366,7 @@ async function upsertContributors(client: any, modelId: number, contributors: an
 }
 
 // 3. Upsert states & vast_states & state_attributes
-async function upsertStates(client: any, stm_name: string, states: any[]): Promise<number[]> {
+export async function upsertStates(client: any, stm_name: string, states: any[]): Promise<number[]> {
   const stateIds: number[] = [];
 
   for (const state of states) {
@@ -548,7 +548,7 @@ async function upsertStates(client: any, stm_name: string, states: any[]): Promi
 }
 
 // 4. Upsert transitions & causal_chain & drivers
-async function upsertTransitions(client: any, stm_name: string, transitions: any[]): Promise<number[]> {
+export async function upsertTransitions(client: any, stm_name: string, transitions: any[]): Promise<number[]> {
   const transitionIds: number[] = [];
   for (const transition of transitions) {
     // There is notes field in the TransitionData type, but no such column in the database
