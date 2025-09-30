@@ -1,9 +1,9 @@
-import express, { Request, Response, NextFunction} from 'express';
+import express, { Request, Response } from 'express';
 import cors from 'cors';
 
 import authRoutes from './routes/auth';
 import modelsRoutes from './routes/models';
-import { requireAuth } from "./middlewares/auth.middleware";
+// import { requireAuth } from "./middlewares/auth.middleware";
 
 const app = express();
 

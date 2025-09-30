@@ -5,6 +5,11 @@ import type { Signup, Login } from "../types/auth.types";
 
 const auth = express.Router();
 
+// auth health check endpoint
+auth.get('/health', (req: Request, res: Response) => {
+  res.status(200).json({ status: 'Auth service is healthy' });
+});
+
 auth.post("/signup", async (req : Request, res : Response) => {
   const body = req.body as Signup;
   if (!body?.email || !body?.password)

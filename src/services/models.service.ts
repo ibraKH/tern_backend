@@ -1,8 +1,5 @@
 import pool from '../config/database';
 import { BMRGData, StateData, TransitionData } from '../types/types';
-import e from 'express';
-import { error, log } from 'console';
-
 
 // Get all model names
 export async function getAllModels() {

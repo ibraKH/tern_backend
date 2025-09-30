@@ -3,7 +3,7 @@ import app from '../../src/app';
 
 describe('health of models router', () => {
   it('GET /models returns ok', async () => {
-    const res = await request(app).get('/models');
+    const res = await request(app).get('/models/health');
     expect(res.status).toBe(200);
   });
 });
