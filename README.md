@@ -205,28 +205,32 @@ Authorization: Bearer <JWT_TOKEN>
 Authorization: Bearer <JWT_TOKEN>
 ```
 
-**Body**
+**Body for save all**
+ 
 ```json
 {
-  "stm_name": "Test STM",
-  "version": "v1.0",
+  "stm_name": "BMRG Rainforests",
+  "version": "pre peer review",
   "release_date": "Aug-24",
-  "authorised_by": "Tester",
+  "authorised_by": "Megan Good",
   "contributing_experts": [
-    { "name": "Alice", "email": "alice@test.com", "contribution_type": "Author" }
+    {
+      "name": "add",
+      "email": "add@test.com",
+      "contribution_type": "Author"
+    }
   ],
-  "region": "Test Region",
+  "region": "",
   "region_id": 1,
-  "climate": "Temperate",
-  "ecosystem_type": "Forest",
-  "aus_eco_archetype_code": "1.1",
-  "aus_eco_archetype_name": "Test Archetype",
-  "aus_eco_umbrella_code": 1,
-  "peer_reviewed": "No",
-  "no_peer_reviewers": 0,
+  "climate": "Tropical",
+  "ecosystem_type": "Rainforests",
+  "aus_eco_archetype_code": 1.2,
+  "aus_eco_archetype_name": "Non-marine influenced rainforest and vine thickets",
+  "aus_eco_umbrella_code": 1.0,
+  "peer_reviewed": "",
+  "no_peer_reviewers": -9999,
   "states": [
     {
-      "state_id": 1,
       "state_name": "Reference",
       "vast_state": {
         "vast_class": "Class I",
@@ -234,20 +238,23 @@ Authorization: Bearer <JWT_TOKEN>
         "vast_eks_state": 1,
         "eks_overstorey_class": "Reference overstorey",
         "eks_understorey_class": "Reference understorey",
-        "eks_substate": "Reference overstorey and understorey",
+        "eks_substate": "Reference overstorey and reference understorey",
         "link": ""
       },
       "condition_upper": 1.0,
       "condition_lower": 0.9,
-      "eks_condition_estimate": 1,
-      "elicitation_type": "Pilot region",
+      "eks_condition_estimate": -9999,
+      "elicitation_type": "pilot region",
       "attributes": [
-        { "attribute_type": "max_canopy_cover_perc", "value": "80", "units": "%" }
+        {
+          "attribute_type": "native_canopy_dominance",
+          "value": "90",
+          "units": "%"
+        }
       ]
     },
     {
-      "state_id": 2,
-      "state_name": "Modified",
+      "state_name": "Reference overstorey, modified understorey",
       "vast_state": {
         "vast_class": "Class II",
         "vast_name": "Modified",
@@ -259,50 +266,40 @@ Authorization: Bearer <JWT_TOKEN>
       },
       "condition_upper": 0.9,
       "condition_lower": 0.75,
-      "eks_condition_estimate": 0.8,
-      "elicitation_type": "NEAP estimate",
+      "eks_condition_estimate": -9999,
+      "elicitation_type": "pilot region",
       "attributes": null
     }
   ],
   "transitions": [
     {
       "transition_id": 1,
-      "stm_name": "Test STM",
+      "stm_name": "BMRG Rainforests",
       "start_state": "Reference",
       "start_state_id": 1,
-      "end_state": "Modified",
+      "end_state": "Reference overstorey, modified understorey",
       "end_state_id": 2,
-      "time_100": 10,
-      "time_25": 5,
-      "likelihood_25": 0.5,
-      "likelihood_100": 0.9,
-      "transition_delta": 0.1,
+      "time_25": 1,
+      "time_100": 0,
+      "likelihood_25": -9999,
+      "likelihood_100": -9999,
+      "notes": "",
       "causal_chain": [
         {
           "chain_part": "management intervention",
           "drivers": [
-            { "driver": "Remove invasive species", "driver_group": "Vegetation removal" }
-          ]
-        },
-        {
-          "chain_part": "favourable abiotic factor",
-          "drivers": [
-            { "driver": "Rainfall above average", "driver_group": "Climate" }
-          ]
-        },
-        {
-          "chain_part": "biotic process",
-          "drivers": [
-            { "driver": "Seed dispersal", "driver_group": "Biotic process" }
-          ]
-        },
-        {
-          "chain_part": "hazard",
-          "drivers": [
-            { "driver": "Wildfire", "driver_group": "Fire" }
+            {
+              "driver": "Total grazing pressure (including livestock and feral animals) exceeds that to maintain <Ecosystem State> understorey",
+              "driver_group": "Fauna and livestock"
+            },
+            {
+              "driver": "Increased or ongoing edge effects (light levels, temperature, exotic propagules, feral animal incursions)",
+              "driver_group": "Biotic process"
+            }
           ]
         }
-      ]
+      ],
+      "transition_delta": 0.03
     }
   ],
   "method_alignment": "None"
@@ -311,7 +308,95 @@ Authorization: Bearer <JWT_TOKEN>
 
 **Response**
 ```json
-{ "success": true, "modelId": 101 }
+{
+    "success": true,
+    "modelId": {
+        "modelId": 1
+    }
+}
+```
+
+**Body for update stmmodel**
+ 
+```json
+{
+  "id": 1,
+  "stm_name": "Test edit",
+  "version": "v1.1",
+  "release_date": "Oct-11",
+  "authorised_by": "Test Edit"
+}
+```
+**Body for update contributors**
+ 
+```json
+{
+  "id": 1,
+  "contributing_experts": [
+    {
+      "name": "add",
+      "email": "add@test.com",
+      "contribution_type": "Author"
+    },
+    {
+      "contributor_id": 1,
+      "name": "edit",
+      "email": "edit@test.com",
+      "contribution_type": "Reviewer"
+    }
+  ]
+}
+```
+**Body for update  driver, causal_chain and transitions**
+ 
+```json
+{
+  "id": 1,
+  "transitions": [
+    {
+      "id": 1,
+      "transition_id": 2,
+      "start_state_id": 2,
+      "causal_chain": [
+        {
+          "causal_chain_id": 2,
+          "chain_part": "Favorable abiotic factor",
+          "drivers": [
+            {
+              "driver_id": 1,
+              "driver": "Test edit for drivers",
+              "driver_group": "test group for drivers"
+            }
+          ]
+        }
+      ],
+      "transition_delta": 0.03
+    }
+  ]
+}
+```
+**Body for update states, vast_state, state_attributes**
+ 
+```json
+{
+  "id": 1,
+  "states": [
+    {
+      "state_id": 1,
+      "state_name": "testEdit",
+      "vast_state": {
+        "vast_state_id": 1,
+        "vast_name": "Test_edit"
+      },
+      "attributes": [
+        {
+          "state_attribute_id": 1,
+          "units": "test_edit"
+        }
+      ]
+    }
+  ]
+}
 ```
 
 ---
