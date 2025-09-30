@@ -6,7 +6,7 @@ const config: Config = {
   roots: ['<rootDir>/tests'],
   moduleFileExtensions: ['ts', 'js', 'json'],
   testMatch: ['**/?(*.)+(spec|test).ts'],
-  setupFiles: ['dotenv/config'],
+  setupFiles: ['<rootDir>/jest.setup.ts'],
   collectCoverageFrom: [
     'src/**/*.{ts,js}',
     '!src/index.ts', 
