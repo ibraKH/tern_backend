@@ -22,7 +22,7 @@ models.get('/all', async (req: Request, res: Response) => {
 });
 
 // GET /models/:name: get model details by name
-models.get('/models/:name', async (req: Request, res: Response) => {
+models.get('/:name', async (req: Request, res: Response) => {
   try {
     const { name } = req.params;
     const model = await getModelByName(name);
