@@ -22,7 +22,8 @@ auth.post("/signup", async (req : Request, res : Response) => {
     const user = await createUser(body);
     const token = signToken({ uid: user.id, email: user.email, role: user.role });
     res.status(201).json({ token, user: { id: user.id, email: user.email, role: user.role } });
-  } catch (e) {
+  } catch (e: any) {
+    console.error("[/auth/signup] error:", e?.message || e);
     res.status(500).json({ error: "signup failed" });
   }
 });
