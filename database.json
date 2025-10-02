@@ -14,5 +14,10 @@
     "database": "storebackend_test",
     "user": { "ENV": "PG_USER" },
     "password": { "ENV": "PG_PASSWORD" }
+  },
+  "production": {
+    "driver": "pg",
+    "connectionString": { "ENV": "DATABASE_URL" },
+    "ssl": { "rejectUnauthorized": false }
   }
 }
