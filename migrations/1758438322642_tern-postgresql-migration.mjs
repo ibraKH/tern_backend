@@ -350,7 +350,7 @@ export const up = (pgm) => {
 
   pgm.createTable('auth_users', {
     id: { type: 'serial', primaryKey: true },
-    email: { type: 'varchar(255)', notNull: true },
+    email: { type: 'varchar(255)', notNull: true , unique: true },
     password_hash: { type: 'text', notNull: true },
     role: { type: 'auth_role', notNull: true, default: 'Viewer' },
     contributor_id: { type: 'integer' },
