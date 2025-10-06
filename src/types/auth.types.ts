@@ -2,14 +2,15 @@ export type User = {
   id: number;
   email: string;
   password_hash: string;
-  role: "author" | "reviewer";
+  role: 'Admin' | 'Viewer' | 'Editor';
   contributor_id?: number | null;
 };
 
 export type Signup = { 
+    name: string;
     email: string; 
     password: string; 
-    role?: User["role"] 
+    role: User["role"] 
 };
 
 export type Login  = { 

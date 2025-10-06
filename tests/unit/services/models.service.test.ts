@@ -1,6 +1,7 @@
-import { normalizeReleaseDate, buildDynamicUpdate, upsertModelMetadata, upsertContributors, upsertStates, upsertTransitions, saveModel } from "../../../src/services/models.service";
+import { normalizeReleaseDate, buildDynamicUpdate, upsertModelMetadata, upsertContributors, upsertStates, upsertTransitions, saveModel } from "../../../src/services/models/save.service";
 import pool from "../../../src/config/database";
-import { getAllModels, getModelByName } from "../../../src/services/models.service";
+import { getAllModels, getModelByName } from "../../../src/services/models/show.service";
+import { Contributor } from "../../../src/types/models.types";
 
 describe('normalizeReleaseDate', () => {
     it('should normalize "Aug-24" to "2024-08-01"', () => {
@@ -166,35 +167,124 @@ describe('upsertStates', () => {
     });
 });
 
-describe('upsertContributors', () => {
-    const mockClient = { query: jest.fn() };
+describe("upsertContributors", () => {
+  const mockClient = { query: jest.fn() };
 
-    beforeEach(() => {
-        jest.clearAllMocks();
-    });
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
 
-    it('should insert new contributors if contributor_id does not exist', async () => {
-        const contributors = [
-            { name: 'Bob', email: 'bob@test.com', contribution_type: 'Reviewer' },
-        ];
+  it("inserts new contributor when not found, then links role", async () => {
+    const contributors: Contributor[] = [
+      { name: "Bob", email: "bob@test.com", contribution_type: "Reviewer" },
+    ];
 
-        mockClient.query.mockResolvedValueOnce({ rows: [{ id: 101 }] });
 
-        const result = await upsertContributors(mockClient, 20, contributors);
+    mockClient.query
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ id: 101 }] })
+      .mockResolvedValueOnce(undefined);
 
-        expect(mockClient.query).toHaveBeenCalledWith(
-            expect.stringContaining('INSERT INTO contributors'),
-            [20, 'Bob', 'bob@test.com', 'Reviewer']
-        );
+    await upsertContributors(mockClient as any, 20, contributors);
 
-        expect(result).toBeUndefined();
-    });
+    expect(mockClient.query).toHaveBeenNthCalledWith(
+      1,
+      expect.stringContaining("SELECT id FROM contributors"),
+      ["bob@test.com"]
+    );
+    expect(mockClient.query).toHaveBeenNthCalledWith(
+      2,
+      expect.stringContaining("INSERT INTO contributors"),
+      ["Bob", "bob@test.com"]
+    );
+    expect(mockClient.query).toHaveBeenNthCalledWith(
+      3,
+      expect.stringContaining("INSERT INTO model_contributions"),
+      [20, 101, "Reviewer"]
+    );
+  });
 
-    it('should do nothing if contributors array is empty', async () => {
-        const result = await upsertContributors(mockClient, 30, []);
-        expect(mockClient.query).not.toHaveBeenCalled();
-        expect(result).toBeUndefined();
-    });
+  it("uses existing contributor when email exists (no insert into contributors)", async () => {
+    const contributors: Contributor[] = [
+      { name: "Carol", email: "carol@test.com", contribution_type: "Reviewer" },
+    ];
+
+    mockClient.query
+      .mockResolvedValueOnce({ rows: [{ id: 55 }] })
+      .mockResolvedValueOnce(undefined);
+
+    await upsertContributors(mockClient as any, 33, contributors);
+
+    expect(mockClient.query).toHaveBeenNthCalledWith(
+      1,
+      expect.stringContaining("SELECT id FROM contributors"),
+      ["carol@test.com"]
+    );
+    expect(
+      (mockClient.query as jest.Mock).mock.calls.some(([sql]: any[]) =>
+        (sql as string).includes("INSERT INTO contributors")
+      )
+    ).toBe(false);
+
+    expect(mockClient.query).toHaveBeenNthCalledWith(
+      2,
+      expect.stringContaining("INSERT INTO model_contributions"),
+      [33, 55, "Reviewer"]
+    );
+  });
+
+  it("updates existing contributor when contributor_id provided, then links role", async () => {
+    const contributors: Contributor[] = [
+      {
+        name: "Alice",
+        email: "alice@test.com",
+        contribution_type: "Author",
+        contributor_id: 77,
+      },
+    ];
+
+    mockClient.query
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce(undefined);
+
+    await upsertContributors(mockClient as any, 44, contributors);
+
+    expect(mockClient.query).toHaveBeenNthCalledWith(
+      1,
+      expect.stringContaining("UPDATE contributors SET name = $1, email = $2 WHERE id = $3"),
+      ["Alice", "alice@test.com", 77]
+    );
+
+    expect(mockClient.query).toHaveBeenNthCalledWith(
+      2,
+      expect.stringContaining("INSERT INTO model_contributions"),
+      [44, 77, "Author"]
+    );
+  });
+
+  it("normalizes/trims email to lowercase before querying", async () => {
+    const contributors: Contributor[] = [
+      { name: "Bob", email: "  BOB@TesT.com  ", contribution_type: "Reviewer" },
+    ];
+
+    mockClient.query
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ id: 101 }] })
+      .mockResolvedValueOnce(undefined);
+
+    await upsertContributors(mockClient as any, 20, contributors);
+
+    expect(mockClient.query).toHaveBeenNthCalledWith(
+      1,
+      expect.stringContaining("SELECT id FROM contributors"),
+      ["bob@test.com"]
+    );
+  });
+
+  it("does nothing when contributors array is empty", async () => {
+    await upsertContributors(mockClient as any, 30, []);
+    expect(mockClient.query).not.toHaveBeenCalled();
+  });
 });
 
 describe('upsertTransitions', () => {

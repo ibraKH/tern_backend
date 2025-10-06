@@ -12,8 +12,14 @@ auth.get('/health', (req: Request, res: Response) => {
 
 auth.post("/signup", async (req : Request, res : Response) => {
   const body = req.body as Signup;
+  if (!body?.name || body.name.trim() === "")
+    return res.status(400).json({ error: "name is required" });
   if (!body?.email || !body?.password)
     return res.status(400).json({ error: "email and password required" });
+  
+  if (!body?.role || !["Admin", "Viewer", "Editor"].includes(body.role)) {
+    body.role = "Viewer";
+  }
 
   try {
     const existing = await getUserByEmail(body.email);
