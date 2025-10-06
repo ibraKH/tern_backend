@@ -53,3 +53,10 @@ export interface BMRGData {
     transitions: TransitionData[];
     method_alignment: string;
 }
+
+export interface Contributor {
+    contributor_id?: number; 
+    name: string;
+    email: string;
+    contribution_type: 'Author' | 'Reviewer';
+}

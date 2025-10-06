@@ -9,6 +9,7 @@ export const shorthands = undefined;
 export const up = (pgm) => {
   // 1) PostGIS extension
   pgm.createExtension('postgis', { ifNotExists: true });
+  pgm.createExtension('citext', { ifNotExists: true });
 
   // 2) Enumerated types
   pgm.createType('attribute_types', [
@@ -47,6 +48,8 @@ export const up = (pgm) => {
   pgm.createType('vast_class_type', ['ClassI', 'ClassII', 'ClassIII', 'ClassIV', 'ClassV', 'ClassVI'], { ifNotExists: true });
 
   pgm.createType('driver_types', ['biotic', 'abiotic', 'hazard'], { ifNotExists: true });
+
+  pgm.createType('auth_role', ['Admin', 'Editor', 'Viewer'], { ifNotExists: true });
 
   // 3) Core tables
   pgm.createTable('stmmodel', {
@@ -312,27 +315,44 @@ export const up = (pgm) => {
 
   pgm.createTable('contributors', {
     id: 'id',
-    stm_id: 'integer',
     name: 'varchar(255)',
-    email: 'varchar(255)',
-    contibution_type: 'contribution_type',
+    email: { type: 'citext', notNull: true, unique: true },
   }, { ifNotExists: true });
 
-  // FK: contributors.stm_id -> stmmodel(id)
-  pgm.addConstraint('contributors', 'fk_contributors_stmmodel', {
+  pgm.createTable('model_contributions', {
+  id: 'id',
+  stm_id: { type: 'integer', notNull: true },
+  contributor_id: { type: 'integer', notNull: true },
+  contribution_type: { type: 'contribution_type', notNull: true },
+  }, { ifNotExists: true });
+
+  pgm.addConstraint('model_contributions', 'fk_mc_model', {
     foreignKeys: {
       columns: 'stm_id',
       references: 'stmmodel(id)',
       onUpdate: 'CASCADE',
-      onDelete: 'SET NULL',
+      onDelete: 'CASCADE',
     },
+  });
+
+  pgm.addConstraint('model_contributions', 'fk_mc_contributor', {
+    foreignKeys: {
+      columns: 'contributor_id',
+      references: 'contributors(id)',
+      onUpdate: 'CASCADE',
+      onDelete: 'CASCADE',
+    },
+  });
+
+  pgm.addConstraint('model_contributions', 'uq_mc_unique_pair', {
+  unique: ['stm_id', 'contributor_id'],
   });
 
   pgm.createTable('auth_users', {
     id: { type: 'serial', primaryKey: true },
     email: { type: 'varchar(255)', notNull: true },
     password_hash: { type: 'text', notNull: true },
-    role: { type: 'varchar(32)', notNull: true, default: 'author' },
+    role: { type: 'auth_role', notNull: true, default: 'Viewer' },
     contributor_id: { type: 'integer' },
     created_at: { type: 'timestamptz', notNull: true, default: pgm.func('now()') }
   }, { ifNotExists: true });
@@ -550,6 +570,8 @@ export const down = (pgm) => {
   pgm.dropIndex('transitions', 'stm_name', { name: 'idx_transitions_stm_name', ifExists: true });
   pgm.dropIndex('states', 'vast_state_id', { name: 'idx_states_vast_state_id', ifExists: true });
   pgm.dropIndex('states', 'stm_name', { name: 'idx_states_stm_name', ifExists: true });
+  pgm.dropIndex('model_contributions', 'contributor_id', { name: 'idx_mc_contributor_id', ifExists: true });
+  pgm.dropIndex('model_contributions', 'stm_id', { name: 'idx_mc_stm_id', ifExists: true });
 
   // Drop tables (reverse dependency order)
   pgm.dropTable('method_causal_chain', { ifExists: true, cascade: true });
@@ -561,6 +583,7 @@ export const down = (pgm) => {
   pgm.dropTable('decision_tree_nodes', { ifExists: true, cascade: true });
   pgm.dropTable('vast_class_to_states', { ifExists: true, cascade: true });
   pgm.dropTable('contributors', { ifExists: true, cascade: true });
+  pgm.dropTable('model_contributions', { ifExists: true, cascade: true });
   pgm.dropTable('aus_ecomodel_archetype', { ifExists: true, cascade: true });
   pgm.dropTable('causal_chain', { ifExists: true, cascade: true });
   pgm.dropTable('sub_drivers', { ifExists: true, cascade: true });

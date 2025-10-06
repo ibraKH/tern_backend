@@ -30,33 +30,78 @@ describe("services/auth.service", () => {
   });
 
   describe("createUser()", () => {
-    it("inserts user and returns row", async () => {
-      client.query.mockResolvedValueOnce({
-        rows: [{ id: 1, email: "t@e.com", password_hash: "h:secret", role: "author", contributor_id: null }],
+    it("inserts user, links contributor, and returns final row", async () => {
+      client.query
+        .mockResolvedValueOnce(undefined)
+        .mockResolvedValueOnce({ rows: [{ id: 1 }] })
+        .mockResolvedValueOnce({ rows: [{ id: 10 }] })
+        .mockResolvedValueOnce(undefined)
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              id: 1,
+              email: "t@e.com",
+              password_hash: "h:secret",
+              role: "Editor",
+              contributor_id: 10,
+            },
+          ],
+        })
+        .mockResolvedValueOnce(undefined);
+
+      const user = await createUser({
+        email: "t@e.com",
+        password: "secret",
+        role: "Editor",
+        name: "Test User",
       });
 
-      const user = await createUser({ email: "t@e.com", password: "secret" });
 
       expect(hash).toHaveBeenCalledWith("secret");
+
       expect(client.query).toHaveBeenCalledWith(
         expect.stringContaining("INSERT INTO auth_users"),
-        ["t@e.com", "h:secret", undefined]
+        ["t@e.com", "h:secret", "Editor"]
       );
-      expect(user.email).toBe("t@e.com");
-      expect(user.id).toBe(1);
+
+      expect(client.query).toHaveBeenCalledWith(
+        expect.stringContaining("INSERT INTO contributors"),
+        ["t@e.com", "Test User"]
+      );
+
+      expect(client.query).toHaveBeenCalledWith(
+        expect.stringContaining("UPDATE auth_users SET contributor_id"),
+        [10, 1]
+      );
+
+      expect(client.query).toHaveBeenCalledWith(
+        expect.stringContaining("SELECT id, email, password_hash, role, contributor_id"),
+        [1]
+      );
+
+      expect(user).toEqual({
+        id: 1,
+        email: "t@e.com",
+        password_hash: "h:secret",
+        role: "Editor",
+        contributor_id: 10,
+      });
     });
   });
 
   describe("getUserByEmail()", () => {
     it("returns user when found", async () => {
       (pool.query as jest.Mock).mockResolvedValueOnce({
-        rows: [{ id: 9, email: "x@y.com", password_hash: "h:pw", role: "admin", contributor_id: 5 }],
+        rows: [{ id: 9, email: "x@y.com", password_hash: "h:pw", role: "Admin", contributor_id: 5 }],
       });
 
       const u = await getUserByEmail("x@y.com");
-      expect(pool.query).toHaveBeenCalledWith(expect.stringContaining("FROM auth_users"), ["x@y.com"]);
+      expect(pool.query).toHaveBeenCalledWith(
+        expect.stringContaining("FROM auth_users"),
+        ["x@y.com"]
+      );
       expect(u?.id).toBe(9);
-      expect(u?.role).toBe("admin");
+      expect(u?.role).toBe("Admin");
     });
 
     it("returns null when not found", async () => {
@@ -69,7 +114,7 @@ describe("services/auth.service", () => {
   describe("authenticate()", () => {
     it("returns user when password correct", async () => {
       (pool.query as jest.Mock).mockResolvedValueOnce({
-        rows: [{ id: 2, email: "a@b.com", password_hash: "h:secret", role: "author", contributor_id: null }],
+        rows: [{ id: 2, email: "a@b.com", password_hash: "h:secret", role: "Editor", contributor_id: null }],
       });
 
       const u = await authenticate({ email: "a@b.com", password: "secret" });
@@ -79,7 +124,7 @@ describe("services/auth.service", () => {
 
     it("returns null when password wrong", async () => {
       (pool.query as jest.Mock).mockResolvedValueOnce({
-        rows: [{ id: 2, email: "a@b.com", password_hash: "h:secret", role: "author", contributor_id: null }],
+        rows: [{ id: 2, email: "a@b.com", password_hash: "h:secret", role: "Editor", contributor_id: null }],
       });
 
       const u = await authenticate({ email: "a@b.com", password: "wrong" });

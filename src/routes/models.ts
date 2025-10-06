@@ -1,7 +1,7 @@
 import express, { Request, Response } from 'express';
-import { saveModel } from '../services/models.service';
-import { getAllModels } from '../services/models.service';
-import { getModelByName } from '../services/models.service';
+import { saveModel } from '../services/models/save.service';
+import { getAllModels, getModelByName } from '../services/models/show.service';
+import { requireRole } from '../middlewares/role.middleware';
 
 const models = express.Router();
 
@@ -11,7 +11,7 @@ models.get('/health', (req: Request, res: Response) => {
 });
 
 // GET /models: get all model names
-models.get('/all', async (req: Request, res: Response) => {
+models.get('/all', requireRole(["Admin"]), async (req: Request, res: Response) => {
   try {
     const modelNames = await getAllModels();
     res.json(modelNames);
@@ -22,7 +22,7 @@ models.get('/all', async (req: Request, res: Response) => {
 });
 
 // GET /models/:name: get model details by name
-models.get('/:name', async (req: Request, res: Response) => {
+models.get('/:name', requireRole(["Admin", "Editor", "Viewer"]), async (req: Request, res: Response) => {
   try {
     const { name } = req.params;
     const model = await getModelByName(name);
@@ -36,7 +36,7 @@ models.get('/:name', async (req: Request, res: Response) => {
 });
 
 // POST route for saving a model
-models.post('/save', async (req, res) => {
+models.post('/save', requireRole(["Admin", "Editor"]), async (req, res) => {
   try {
     const modelId = await saveModel(req.body);
     res.status(201).json({ success: true, modelId });
