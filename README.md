@@ -208,8 +208,9 @@ Authorization: Bearer <JWT_TOKEN>
 **Body for save all**
  
 ```json
+// insert all data into database
 {
-  "stm_name": "BMRG Rainforests",
+  "stm_name": "BMRG Rainforests Test",
   "version": "pre peer review",
   "release_date": "Aug-24",
   "authorised_by": "Megan Good",
@@ -221,7 +222,7 @@ Authorization: Bearer <JWT_TOKEN>
     }
   ],
   "region": "",
-  "region_id": 1,
+  "region_id": 1,   // must exist in database
   "climate": "Tropical",
   "ecosystem_type": "Rainforests",
   "aus_eco_archetype_code": 1.2,
@@ -231,6 +232,7 @@ Authorization: Bearer <JWT_TOKEN>
   "no_peer_reviewers": -9999,
   "states": [
     {
+      "fake_state_id": 1,   // fake state id link to transition: start_state_id and end_state_id
       "state_name": "Reference",
       "vast_state": {
         "vast_class": "Class I",
@@ -254,6 +256,7 @@ Authorization: Bearer <JWT_TOKEN>
       ]
     },
     {
+      "fake_state_id": 2,
       "state_name": "Reference overstorey, modified understorey",
       "vast_state": {
         "vast_class": "Class II",
@@ -273,12 +276,67 @@ Authorization: Bearer <JWT_TOKEN>
   ],
   "transitions": [
     {
-      "transition_id": 1,
-      "stm_name": "BMRG Rainforests",
       "start_state": "Reference",
       "start_state_id": 1,
       "end_state": "Reference overstorey, modified understorey",
       "end_state_id": 2,
+      "time_25": 1,
+      "time_100": 0,
+      "likelihood_25": -9999,
+      "likelihood_100": -9999,
+      "notes": "",
+      "causal_chain": [
+        {
+          "chain_part": "management intervention",
+          "drivers": [
+            {
+              "driver": "Weed management - physical, chemical, ecological",
+              "driver_group": "Weeds and exotic plants"
+            },
+            {
+              "driver": "Weed control - reduction in weed propagules in landscape",
+              "driver_group": "Landscape"
+            },
+            {
+              "driver": "Manage and maintain appropriate total grazing pressure (includes native and introduced herbivores, and 'ferals')",
+              "driver_group": "Fauna and livestock"
+            },
+            {
+              "driver": "Exclude livestock",
+              "driver_group": "Fauna and livestock"
+            }
+          ]
+        },
+        {
+          "chain_part": "hazard",
+          "drivers": [
+            {
+              "driver": "Unfavourable climatic conditions (drought, heat)",
+              "driver_group": "Environmental drivers"
+            },
+            {
+              "driver": "High intensity fire (catastrophic wildfire, bushfire)",
+              "driver_group": "Fire"
+            }
+          ]
+        },
+        {
+          "chain_part": "biotic process",
+          "drivers": [
+            {
+              "driver": "Native propagules available (soil seedbank or local species pool)",
+              "driver_group": "Biotic process"
+            }
+          ]
+        }
+      ],
+      "transition_delta": 0.03
+    },
+    {
+      "start_state": "Reference overstorey, modified understorey",
+      "start_state_id": 2,
+      "end_state": "Reference overstorey, highly modified understorey",
+      "end_state_id": 1,
       "time_25": 1,
       "time_100": 0,
       "likelihood_25": -9999,
@@ -299,7 +357,7 @@ Authorization: Bearer <JWT_TOKEN>
           ]
         }
       ],
-      "transition_delta": 0.03
+      "transition_delta": 0.0
     }
   ],
   "method_alignment": "None"
@@ -316,7 +374,7 @@ Authorization: Bearer <JWT_TOKEN>
 }
 ```
 
-**Body for update stmmodel**
+**Body for edit stmmodel (example)**
  
 ```json
 {
@@ -327,7 +385,7 @@ Authorization: Bearer <JWT_TOKEN>
   "authorised_by": "Test Edit"
 }
 ```
-**Body for update contributors**
+**Body for edit contributors (example)**
  
 ```json
 {
@@ -347,35 +405,54 @@ Authorization: Bearer <JWT_TOKEN>
   ]
 }
 ```
-**Body for update  driver, causal_chain and transitions**
+**Body for update  driver, causal_chain and transitions  (example)**
  
 ```json
 {
   "id": 1,
+  "states": [
+    {
+      "fake_state_id": 10,
+      "state_name": "test_add_new_state",
+      "vast_state": {
+        "vast_state_id": 2
+      }
+    }
+  ],
   "transitions": [
     {
       "id": 1,
-      "transition_id": 2,
-      "start_state_id": 2,
+      "start_state_id": 1,
+      "end_state_id": 10,
+      "likelihood_100": 0.1,
       "causal_chain": [
         {
-          "causal_chain_id": 2,
-          "chain_part": "Favorable abiotic factor",
+          "causal_chain_id": 1,
+          "chain_part": "hazard",
           "drivers": [
             {
               "driver_id": 1,
-              "driver": "Test edit for drivers",
-              "driver_group": "test group for drivers"
+              "driver": "edit driver"
+            }
+          ]
+        },
+        {
+          "chain_part": "biotic process",
+          "drivers": [
+            {
+              "driver_id": 2
+            },
+            {
+              "driver": "add driver"
             }
           ]
         }
-      ],
-      "transition_delta": 0.03
+      ]
     }
   ]
 }
 ```
-**Body for update states, vast_state, state_attributes**
+**Body for update states, vast_state, state_attributes  (example)**
  
 ```json
 {
@@ -383,20 +460,34 @@ Authorization: Bearer <JWT_TOKEN>
   "states": [
     {
       "state_id": 1,
-      "state_name": "testEdit",
-      "vast_state": {
-        "vast_state_id": 1,
-        "vast_name": "Test_edit"
-      },
       "attributes": [
         {
           "state_attribute_id": 1,
-          "units": "test_edit"
+          "attribute_type": "native_canopy_dominance",
+          "value": "90",
+          "units": "edit%"
         }
       ]
+    },
+    {
+      "state_id": 2,
+      "state_name": "test_edit_state_name_with_id_2",
+      "vast_state": {
+        "vast_class": "Class III",
+        "vast_name": "test_add_edit_vast_state",
+        "vast_eks_state": 1
+      }
+    },
+    {
+      "fake_state_id": 3,
+      "state_name": "test_add_new_state",
+      "vast_state": {
+        "vast_state_id": 2
+      }
     }
   ]
 }
+
 ```
 
 ---
