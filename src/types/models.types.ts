@@ -10,6 +10,7 @@ export interface VastState {
   vast_state_id?: number;              
   vast_class?: 'ClassI'|'ClassII'|'ClassIII'|'ClassIV'|'ClassV'|'ClassVI';
   vast_name?: string;
+  vast_eks_state?: number | null;
   eks_overstorey_class?: string | null;
   eks_understorey_class?: string | null;
   eks_substate?: string | null;
@@ -60,7 +61,7 @@ export interface TransitionData {
     time_100?: number | null;
     likelihood_25?: number | null;
     likelihood_100?: number | null;
-    note?: string | null;
+    notes?: string | null;
     causal_chain: CausalChain[];
     transition_delta: number | null;
 }
@@ -88,7 +89,7 @@ export interface BMRGData {
     aus_eco_umbrella_code: number;
     peer_reviewed: string;
     no_peer_reviewers: number;
-    states?: StateData[];
-    transitions?: TransitionData[];
+    states: StateData[];
+    transitions: TransitionData[];
     method_alignment?: string | null;
 }
