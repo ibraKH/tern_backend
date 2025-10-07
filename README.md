@@ -208,7 +208,6 @@ Authorization: Bearer <JWT_TOKEN>
 **Body for save all**
  
 ```json
-// insert all data into database
 {
   "stm_name": "BMRG Rainforests Test",
   "version": "pre peer review",
@@ -222,7 +221,7 @@ Authorization: Bearer <JWT_TOKEN>
     }
   ],
   "region": "",
-  "region_id": 1,   // must exist in database
+  "region_id": 1,
   "climate": "Tropical",
   "ecosystem_type": "Rainforests",
   "aus_eco_archetype_code": 1.2,
@@ -232,7 +231,7 @@ Authorization: Bearer <JWT_TOKEN>
   "no_peer_reviewers": -9999,
   "states": [
     {
-      "fake_state_id": 1,   // fake state id link to transition: start_state_id and end_state_id
+      "fake_state_id": 1,
       "state_name": "Reference",
       "vast_state": {
         "vast_class": "Class I",
