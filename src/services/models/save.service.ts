@@ -209,8 +209,9 @@ export async function upsertContributors(client: any, modelId: number, contribut
 }
 
 // 3. Upsert states & vast_states & state_attributes
-export async function upsertStates(client: any, stm_name: string, states: any[]): Promise<number[]> {
-  const stateIds: number[] = [];
+export async function upsertStates(client: any, stm_name: string, states: any[]): Promise<Record<number, number>> {
+  // json_id -> db_id
+  const stateMap: Record<number, number> = {};
 
   for (const state of states) {
     // 3.1 Upsert vast_state
@@ -347,8 +348,14 @@ export async function upsertStates(client: any, stm_name: string, states: any[])
         ]
       );
       stateId = stateResult.rows[0]?.id;
-      stateIds.push(stateId);
     }
+
+    if (state.fake_state_id != null) {
+      stateMap[state.fake_state_id] = stateId;
+    } else {
+      stateMap[stateId] = stateId;
+    }
+
 
     // 3.3 Upsert state_attributes
     // attributes need to be an array of objects with attribute_type, value, units
@@ -373,7 +380,7 @@ export async function upsertStates(client: any, stm_name: string, states: any[])
           await client.query(
             `INSERT INTO state_attributes (state_id, attribute_type, value, units)
               VALUES ($1, $2, $3, $4)
-              --ON CONFLICT (id) DO NOTHING`,
+              RETURNING id`,
             [
               stateId,
               attr.attribute_type, // must match the ENUM in the database
@@ -387,16 +394,19 @@ export async function upsertStates(client: any, stm_name: string, states: any[])
 
   }
 
-  return stateIds;
+  return stateMap;
 }
 
 // 4. Upsert transitions & causal_chain & drivers
-export async function upsertTransitions(client: any, stm_name: string, transitions: any[]): Promise<number[]> {
+export async function upsertTransitions(client: any, stm_name: string, transitions: any[], stateMap: Record<number, number>): Promise<number[]> {
   const transitionIds: number[] = [];
   for (const transition of transitions) {
     // There is notes field in the TransitionData type, but no such column in the database
     // 4.1 Upsert transition
     let transitionId = transition.id; // may be undefined for new transitions
+
+    const startStateId = stateMap[transition.start_state_id] ? stateMap[transition.start_state_id] : transition.start_state_id;
+    const endStateId = stateMap[transition.end_state_id] ? stateMap[transition.end_state_id] : transition.end_state_id;
 
     if (transitionId) {
       // --- UPDATE existing transition with dynamic fields ---
@@ -407,8 +417,8 @@ export async function upsertTransitions(client: any, stm_name: string, transitio
         transitionId,
         {
           stm_name: stm_name,
-          start_state_id: transition.start_state_id,  // start_state_id and end_state_id must exist in states table 
-          end_state_id: transition.end_state_id,
+          start_state_id: startStateId,  // start_state_id and end_state_id must exist in states table 
+          end_state_id: endStateId,
           transition_id: transition.transition_id,   // is not the id of the transition, Links to the Australianeco_arche type and MVG cross walk.
           time_100: transition.time_100,
           time_25: transition.time_25,
@@ -431,8 +441,8 @@ export async function upsertTransitions(client: any, stm_name: string, transitio
         [
           // transition.id is serial in database, so don't insert it
           stm_name,
-          transition.start_state_id,  // start_state_id and end_state_id must exist in states table
-          transition.end_state_id,
+          startStateId,  // start_state_id and end_state_id must exist in states table
+          endStateId,
           transition.transition_id,   // is not the id of the transition, Links to the Australianeco_arche type and MVG cross walk.
           transition.time_100,
           transition.time_25,
@@ -447,8 +457,55 @@ export async function upsertTransitions(client: any, stm_name: string, transitio
 
     // 4.2 Upsert causal_chain & drivers
     for (const chain of transition.causal_chain || []) {
+      // 4.2.1 Upsert causal_chain
+      let chainId = chain.causal_chain_id // may be undefined for new causal_chain
+      // normalize chain_part to match ENUM in the database
+      const chainPartMap: Record<string, string> = {
+        "management intervention": "Management Intervention",
+        "favorable abiotic factor": "Favorable abiotic factor",
+        "favourable abiotic factor": "Favorable abiotic factor",
+        "biotic process": "Biotic process",
+        "hazard": "Hazard"
+      };
+      let chainPart = chain.chain_part;
+      if (!("chain_part" in chain)) {
+        chainPart = undefined; // not clearing the field
+      } else if (chain.chain_part) {
+        chainPart = chainPartMap[chainPart.toLowerCase()];
+        if (!chainPart) {
+          throw new Error(`Invalid chain_part: ${chain.chain_part}`);
+        }
+      }
 
-      // 4.2.1 Upsert drivers
+      if (chainId) {
+        // --- UPDATE existing causal_chain with dynamic fields ---
+        const chainUpdate = await buildDynamicUpdate(
+          client,
+          "causal_chain",
+          "id",
+          chainId,
+          {
+            transition_id: transitionId,
+            name: chain.name,
+            chain_part: chainPart,
+          }
+        );
+      } else {
+        const chainResult = await client.query(
+          `INSERT INTO causal_chain (transition_id, name, chain_part)
+          VALUES ($1, $2, $3)
+          RETURNING id`,
+          [
+            transitionId,
+            chain.name,
+            chainPart,
+          ]
+        );
+        chainId = chainResult.rows[0]?.id;
+      }
+
+
+      // 4.2.2 Upsert drivers
       let driverIds: number[] = [];
       for (const driver of chain.drivers || []) {
         let driverId = driver.driver_id;  // may be undefined for new drivers
@@ -465,6 +522,7 @@ export async function upsertTransitions(client: any, stm_name: string, transitio
               driver_group: driver.driver_group
             }
           );
+
         } else {
           // --- INSERT new driver ---
           const driverResult = await client.query(
@@ -479,72 +537,35 @@ export async function upsertTransitions(client: any, stm_name: string, transitio
           );
           driverId = driverResult.rows[0].id;
           driverIds.push(driverId);
+
         }
 
-        // 4.2.2 Upsert causal_chain
-        let chainId = chain.causal_chain_id // may be undefined for new causal_chain
-        // normalize chain_part to match ENUM in the database
-        const chainPartMap: Record<string, string> = {
-          "management intervention": "Management Intervention",
-          "favorable abiotic factor": "Favorable abiotic factor",
-          "favourable abiotic factor": "Favorable abiotic factor",
-          "biotic process": "Biotic process",
-          "hazard": "Hazard"
-        };
-        let chainPart = chain.chain_part;
-        if (!("chain_part" in chain)) {
-          chainPart = undefined; // not clearing the field
-        } else if (chain.chain_part) {
-          chainPart = chainPartMap[chainPart.toLowerCase()];
-          if (!chainPart) {
-            throw new Error(`Invalid chain_part: ${chain.chain_part}`);
-          }
-        }
 
-        // Ensure transition_id is set in the causal_chain
-        let transition_id_aus = transition.transition_id;
-        if (transition_id_aus === undefined) {
-          const result = await client.query(
-            `SELECT transition_id FROM transitions
-            WHERE id = $1`,
-            [transitionId]
-          );
-
-          if (result.rows.length > 0) {
-            transition_id_aus = result.rows[0].transition_id;
+        // 4.2.3 update chain_drivers junction table
+        // now it's name is chain_part, but it shoule be changed to chain_drivers
+        // get existing ids for this chain_part
+        let chain_drivers_Id = null;
+        await client.query(
+          `SELECT id FROM chain_part WHERE causal_chain_id = $1 and driver_id = $2`,
+          [chainId, driverId]
+        ).then((res: any) => {
+          if (res.rows.length > 0) {
+            chain_drivers_Id = res.rows[0].id;
           } else {
-            throw new Error(`transition_id not found for transition with stm_name ${stm_name}, start_state_id ${transition.start_state_id}, end_state_id ${transition.end_state_id}`);
+            chain_drivers_Id = null;
           }
+        });
+
+        // if not exist, insert new record
+        if (!chain_drivers_Id) {
+          await client.query(
+            `INSERT INTO chain_part (causal_chain_id, driver_id)
+            VALUES ($1, $2)
+            RETURNING id`,
+            [chainId, driverId]
+          );
         }
 
-
-        if (chainId) {
-          // --- UPDATE existing causal_chain with dynamic fields ---
-          const chainUpdate = await buildDynamicUpdate(
-            client,
-            "causal_chain",
-            "id",
-            chainId,
-            {
-              transition_id: transition_id_aus,
-              name: chain.name,
-              chain_part: chainPart,
-              driver_id: driverId
-            }
-          );
-        } else {
-          const chainResult = await client.query(
-            `INSERT INTO causal_chain (transition_id, name, chain_part, driver_id)
-            VALUES ($1, $2, $3, $4)`,
-            [
-              transition_id_aus,
-              chain.name,
-              chainPart,
-              driverId
-            ]
-          );
-          chainId = chainResult.rows[0]?.id;
-        }
 
       }
 
@@ -581,14 +602,14 @@ export async function saveModel(modelData: BMRGData) {
       await upsertContributors(client, modelId, modelData.contributing_experts);
     }
     // 3. Upsert states & vast_states & state_attributes
-    let stateIds: number[] = [];
+    let stateMap: Record<number, number> = {};
     if (modelData.states != undefined && modelData.states != null) {
-      stateIds = await upsertStates(client, stm_name, modelData.states);
+      stateMap = await upsertStates(client, stm_name, modelData.states);
     }
     // 4. Upsert transitions & causal_chain & drivers
     let transitionIds: number[] = [];
     if (modelData.transitions != undefined && modelData.transitions != null) {
-      transitionIds = await upsertTransitions(client, stm_name, modelData.transitions);
+      transitionIds = await upsertTransitions(client, stm_name, modelData.transitions, stateMap);
     }
 
     // // 5. Save method_alignment（it's "None" and it don't insert for now)
