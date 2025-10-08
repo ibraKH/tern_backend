@@ -1,7 +1,7 @@
 import { normalizeReleaseDate, buildDynamicUpdate, upsertModelMetadata, upsertContributors, upsertStates, upsertTransitions, saveModel } from "../../../src/services/models/save.service";
 import pool from "../../../src/config/database";
 import { getAllModels, getModelByName } from "../../../src/services/models/show.service";
-import { Contributor } from "../../../src/types/models.types";
+import type { Contributor } from "../../../src/types/models.types";
 
 describe('normalizeReleaseDate', () => {
     it('should normalize "Aug-24" to "2024-08-01"', () => {

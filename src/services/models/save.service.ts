@@ -1,5 +1,5 @@
 import pool from '../../config/database';
-import { BMRGData, Contributor } from '../../types/models.types';
+import type { BMRGData, Contributor } from '../../types/models.types';
 
 // ---------- Utility functions ----------
 export function normalizeReleaseDate(release_date?: string): string | null {

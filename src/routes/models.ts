@@ -1,4 +1,5 @@
-import express, { Request, Response } from 'express';
+import type { Request, Response } from 'express';
+import express from 'express';
 import { saveModel } from '../services/models/save.service';
 import { getAllModels, getModelByName } from '../services/models/show.service';
 import { requireRole } from '../middlewares/role.middleware';

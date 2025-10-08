@@ -1,4 +1,5 @@
-import express, { Request, Response } from 'express';
+import type { Request, Response } from 'express';
+import express from 'express';
 import { createUser, authenticate, getUserByEmail } from "../services/auth.service";
 import { signToken } from "../utils/jwt";
 import type { Signup, Login } from "../types/auth.types";
@@ -28,8 +29,8 @@ auth.post("/signup", async (req : Request, res : Response) => {
     const user = await createUser(body);
     const token = signToken({ uid: user.id, email: user.email, role: user.role });
     res.status(201).json({ token, user: { id: user.id, email: user.email, role: user.role } });
-  } catch (e: any) {
-    console.error("[/auth/signup] error:", e?.message || e);
+  } catch (e: unknown) {
+    console.error("[/auth/signup] error:", (e as Error).message || e);
     res.status(500).json({ error: "signup failed" });
   }
 });

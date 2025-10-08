@@ -1,4 +1,4 @@
-import { Request, Response, NextFunction } from "express";
+import type { Request, Response, NextFunction } from "express";
 import { verifyToken } from "../utils/jwt";
 import pool from "../config/database";
 import type { JwtPayload } from "../utils/jwt";

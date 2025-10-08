@@ -1,5 +1,5 @@
 import pool from '../../config/database';
-import { BMRGData, StateData, TransitionData } from '../../types/models.types';
+import type { BMRGData, StateData, TransitionData } from '../../types/models.types';
 
 // Get all model names
 export async function getAllModels() {
