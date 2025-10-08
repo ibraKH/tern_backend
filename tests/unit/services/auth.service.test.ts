@@ -22,7 +22,12 @@ import pool from "../../../src/config/database";
 import { hash, verify } from "../../../src/utils/hash";
 import { createUser, getUserByEmail, authenticate } from "../../../src/services/auth.service";
 
-const client: any = (pool as any)._client;
+interface MockClient {
+  query: jest.Mock;
+  release: jest.Mock;
+}
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const client = (pool as any)._client as MockClient;
 
 describe("services/auth.service", () => {
   beforeEach(() => {

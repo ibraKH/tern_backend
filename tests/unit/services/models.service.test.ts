@@ -1,7 +1,27 @@
-import { normalizeReleaseDate, buildDynamicUpdate, upsertModelMetadata, upsertContributors, upsertStates, upsertTransitions, saveModel } from "../../../src/services/models/save.service";
+import { normalizeReleaseDate, buildDynamicUpdate, upsertModelMetadata, upsertContributors, upsertStates, upsertTransitions } from "../../../src/services/models/save.service";
 import pool from "../../../src/config/database";
 import { getAllModels, getModelByName } from "../../../src/services/models/show.service";
-import type { Contributor } from "../../../src/types/models.types";
+import type { Contributor, BMRGData, StateData, TransitionData, CausalChain, ChainDriver } from "../../../src/types/models.types";
+
+// Test helpers to build typed objects succinctly
+const makeState = (overrides: Partial<StateData>): StateData => ({
+  state_name: 'State',
+  vast_state: {},
+  condition_upper: 1,
+  condition_lower: 0,
+  eks_condition_estimate: 0.5,
+  attributes: [],
+  ...overrides,
+});
+const makeDriver = (d: Partial<ChainDriver>): ChainDriver => ({ driver: 'D', description: null, driver_group: null, ...d });
+const makeChain = (c: Partial<CausalChain>): CausalChain => ({ name: 'Chain', chain_part: 'Management Intervention', drivers: [], ...c });
+const makeTransition = (t: Partial<TransitionData>): TransitionData => ({
+  start_state_id: 1,
+  end_state_id: 2,
+  transition_delta: 0,
+  causal_chain: [],
+  ...t,
+});
 
 describe('normalizeReleaseDate', () => {
     it('should normalize "Aug-24" to "2024-08-01"', () => {
@@ -68,22 +88,26 @@ describe('upsertModelMetadata', () => {
 
     it('should insert new model if no id', async () => {
         mockClient.query.mockResolvedValueOnce({ rows: [{ id: 42 }] });
-        const modelData: any = {
-            stm_name: "BMRG Rainforests",
-            version: "pre peer review",
-            release_date: "Aug-24",
-            authorised_by: "Megan Good",
-            region_id: null,
-            climate: "Tropical",
-            ecosystem_type: "Rainforests",
-            aus_eco_archetype_code: "1.2",
-            aus_eco_archetype_name: "Non-marine influenced rainforest",
-            aus_eco_umbrella_code: 1,
-            peer_reviewed: "No",
-            no_peer_reviewers: 0,
+        const modelData: BMRGData = {
+          stm_name: "BMRG Rainforests",
+          version: "pre peer review",
+          release_date: "Aug-24",
+          authorised_by: "Megan Good",
+          region: "SomeRegion",
+          region_id: 0,
+          climate: "Tropical",
+          ecosystem_type: "Rainforests",
+          aus_eco_archetype_code: 12,
+          aus_eco_archetype_name: "Non-marine influenced rainforest",
+          aus_eco_umbrella_code: 1,
+          peer_reviewed: "No",
+          no_peer_reviewers: 0,
+          contributing_experts: [],
+          states: [],
+          transitions: []
         };
 
-        const modelId = await upsertModelMetadata(mockClient, modelData);
+        const modelId = await upsertModelMetadata(mockClient, modelData as BMRGData);
         expect(modelId).toBe(42);
         expect(mockClient.query).toHaveBeenCalled();
     });
@@ -91,27 +115,58 @@ describe('upsertModelMetadata', () => {
     it('should update model if id exists', async () => {
         mockClient.query.mockResolvedValueOnce({ rows: [{ id: 23 }] });
 
-        const modelData: any = {
-            id: 23,
-            stm_name: "Test STM",
-            release_date: "Aug-24",
+        const modelData: BMRGData = {
+          id: 23,
+          stm_name: "Test STM",
+          version: "v1",
+          release_date: "Aug-24",
+          authorised_by: "A",
+          region: "R",
+          region_id: 1,
+          climate: "C",
+          ecosystem_type: "E",
+          aus_eco_archetype_code: 1,
+          aus_eco_archetype_name: "Arc",
+          aus_eco_umbrella_code: 1,
+          peer_reviewed: "No",
+          no_peer_reviewers: 0,
+          contributing_experts: [],
+          states: [],
+          transitions: []
         };
 
-        const modelId = await upsertModelMetadata(mockClient, modelData);
+        const modelId = await upsertModelMetadata(mockClient, modelData as BMRGData);
         expect(modelId).toBe(23);
     });
 
-    it('should throw conflict error if unique violation', async () => {
-        const err: any = new Error("duplicate key");
-        err.code = "23505";
-        mockClient.query.mockRejectedValueOnce(err);
+  it('should throw conflict error if unique violation', async () => {
+    const err = new Error("duplicate key") as Error & { code?: string };
+    err.code = "23505";
+    // First query (region check) succeeds, second (insert) fails
+    mockClient.query
+      .mockResolvedValueOnce({ rows: [{ id: 1 }] })
+      .mockRejectedValueOnce(err);
 
-        const modelData: any = {
-            stm_name: "Conflict Model",
-            release_date: "2024-09-29",
+        const modelData: BMRGData = {
+          stm_name: "Conflict Model",
+          version: "v1",
+          release_date: "2024-09-29",
+          authorised_by: "A",
+          region: "R",
+          region_id: 1,
+          climate: "C",
+          ecosystem_type: "E",
+          aus_eco_archetype_code: 1,
+          aus_eco_archetype_name: "Arc",
+          aus_eco_umbrella_code: 1,
+          peer_reviewed: "No",
+          no_peer_reviewers: 0,
+          contributing_experts: [],
+          states: [],
+          transitions: []
         };
 
-        await expect(upsertModelMetadata(mockClient, modelData)).rejects.toMatchObject({
+        await expect(upsertModelMetadata(mockClient, modelData as BMRGData)).rejects.toMatchObject({
             status: 409,
         });
     });
@@ -130,14 +185,14 @@ describe('upsertStates', () => {
             .mockResolvedValueOnce({ rows: [{ id: 202 }] }) // state insert
             .mockResolvedValueOnce({ rows: [{ id: 303 }] }); // state_attributes insert
 
-        const states = [
-            {
-                state_name: 'Rainforest',
-                vast_state: { vast_class: 'Class I', vast_name: 'TestVast' },
-                attributes: [
-                    { attribute_type: 'max_canopy_height', value: '30', units: 'm' },
-                ],
-            },
+        const states: StateData[] = [
+          makeState({
+            state_name: 'Rainforest',
+            // Provide external format requiring mapping inside service
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            vast_state: { vast_class: 'Class I' as any, vast_name: 'TestVast' },
+            attributes: [{ attribute_type: 'max_canopy_height', value: '30', units: 'm' }]
+          })
         ];
 
         const result = await upsertStates(mockClient, 'STM1', states);
@@ -157,11 +212,13 @@ describe('upsertStates', () => {
         expect(result).toEqual([202]);
     });
 
-    it('should throw error for invalid elicitation_type', async () => {
-        const states = [
-            { state_name: 'BadState', elicitation_type: 'wrong type' },
+  it('should throw error for invalid elicitation_type', async () => {
+        const states: StateData[] = [
+          makeState({ state_name: 'BadState', elicitation_type: 'wrong type' as unknown as 'Pilot region' })
         ];
-        await expect(upsertStates(mockClient, 'STM1', states)).rejects.toThrow(
+    // mock vast_state insert returning id so code reaches elicitation_type validation
+    mockClient.query.mockResolvedValueOnce({ rows: [{ id: 999 }] });
+    await expect(upsertStates(mockClient, 'STM1', states)).rejects.toThrow(
             'Invalid elicitation_type',
         );
     });
@@ -185,7 +242,7 @@ describe("upsertContributors", () => {
       .mockResolvedValueOnce({ rows: [{ id: 101 }] })
       .mockResolvedValueOnce(undefined);
 
-    await upsertContributors(mockClient as any, 20, contributors);
+  await upsertContributors(mockClient, 20, contributors);
 
     expect(mockClient.query).toHaveBeenNthCalledWith(
       1,
@@ -213,18 +270,18 @@ describe("upsertContributors", () => {
       .mockResolvedValueOnce({ rows: [{ id: 55 }] })
       .mockResolvedValueOnce(undefined);
 
-    await upsertContributors(mockClient as any, 33, contributors);
+  await upsertContributors(mockClient, 33, contributors);
 
     expect(mockClient.query).toHaveBeenNthCalledWith(
       1,
       expect.stringContaining("SELECT id FROM contributors"),
       ["carol@test.com"]
     );
-    expect(
-      (mockClient.query as jest.Mock).mock.calls.some(([sql]: any[]) =>
-        (sql as string).includes("INSERT INTO contributors")
-      )
-    ).toBe(false);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const insertedContrib = (mockClient.query as jest.Mock).mock.calls.some(([sql]: any) =>
+      String(sql).includes("INSERT INTO contributors")
+    );
+    expect(insertedContrib).toBe(false);
 
     expect(mockClient.query).toHaveBeenNthCalledWith(
       2,
@@ -247,7 +304,7 @@ describe("upsertContributors", () => {
       .mockResolvedValueOnce(undefined)
       .mockResolvedValueOnce(undefined);
 
-    await upsertContributors(mockClient as any, 44, contributors);
+  await upsertContributors(mockClient, 44, contributors);
 
     expect(mockClient.query).toHaveBeenNthCalledWith(
       1,
@@ -272,7 +329,7 @@ describe("upsertContributors", () => {
       .mockResolvedValueOnce({ rows: [{ id: 101 }] })
       .mockResolvedValueOnce(undefined);
 
-    await upsertContributors(mockClient as any, 20, contributors);
+  await upsertContributors(mockClient, 20, contributors);
 
     expect(mockClient.query).toHaveBeenNthCalledWith(
       1,
@@ -282,7 +339,7 @@ describe("upsertContributors", () => {
   });
 
   it("does nothing when contributors array is empty", async () => {
-    await upsertContributors(mockClient as any, 30, []);
+  await upsertContributors(mockClient, 30, []);
     expect(mockClient.query).not.toHaveBeenCalled();
   });
 });
@@ -295,27 +352,24 @@ describe('upsertTransitions', () => {
   });
 
   it('should insert new transition, drivers, and causal_chain for multiple drivers', async () => {
-    const transitions = [
-      {
-        start_state_id: 1,
-        end_state_id: 2,
-        transition_id: 1001,  
+    const transitions: TransitionData[] = [
+      makeTransition({
+        transition_id: 1001,
         time_100: 50,
         time_25: 25,
         likelihood_25: 0.3,
         likelihood_100: 0.8,
         transition_delta: 5,
         causal_chain: [
-          {
+          makeChain({
             name: 'Chain1',
-            chain_part: 'management intervention',
             drivers: [
-              { driver: 'Driver1', description: 'Desc1', driver_group: 'Group1' },
-              { driver: 'Driver2', description: 'Desc2', driver_group: 'Group2' }
+              makeDriver({ driver: 'Driver1', description: 'Desc1', driver_group: 'Group1' }),
+              makeDriver({ driver: 'Driver2', description: 'Desc2', driver_group: 'Group2' })
             ]
-          }
+          })
         ]
-      }
+      })
     ];
 
 mockClient.query
@@ -376,7 +430,9 @@ jest.mock("../../../src/config/database", () => {
   };
 });
 
-const client: any = (pool as any)._client;
+interface TestClient { query: jest.Mock; release: jest.Mock; }
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const client = (pool as any)._client as TestClient;
 
 describe("model.service", () => {
   beforeEach(() => {
