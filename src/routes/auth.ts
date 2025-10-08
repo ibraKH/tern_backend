@@ -2,7 +2,8 @@ import type { Request, Response } from 'express';
 import express from 'express';
 import { createUser, authenticate, getUserByEmail } from "../services/auth.service";
 import { signToken } from "../utils/jwt";
-import type { Signup, Login } from "../types/auth.types";
+import { validate } from '../validation/validate';
+import { signupSchema, loginSchema } from '../validation/auth.schemas';
 
 const auth = express.Router();
 
@@ -11,21 +12,11 @@ auth.get('/health', (req: Request, res: Response) => {
   res.status(200).json({ status: 'Auth service is healthy' });
 });
 
-auth.post("/signup", async (req : Request, res : Response) => {
-  const body = req.body as Signup;
-  if (!body?.name || body.name.trim() === "")
-    return res.status(400).json({ error: "name is required" });
-  if (!body?.email || !body?.password)
-    return res.status(400).json({ error: "email and password required" });
-  
-  if (!body?.role || !["Admin", "Viewer", "Editor"].includes(body.role)) {
-    body.role = "Viewer";
-  }
-
+auth.post("/signup", validate({ body: signupSchema }), async (req : Request, res : Response) => {
+  const body = req.body;
   try {
     const existing = await getUserByEmail(body.email);
     if (existing) return res.status(409).json({ error: "email already in use" });
-
     const user = await createUser(body);
     const token = signToken({ uid: user.id, email: user.email, role: user.role });
     res.status(201).json({ token, user: { id: user.id, email: user.email, role: user.role } });
@@ -35,15 +26,11 @@ auth.post("/signup", async (req : Request, res : Response) => {
   }
 });
 
-auth.post("/login", async (req : Request, res : Response) => {
-  const body = req.body as Login;
-  if (!body?.email || !body?.password)
-    return res.status(400).json({ error: "email and password required" });
-
+auth.post("/login", validate({ body: loginSchema }), async (req : Request, res : Response) => {
+  const body = req.body;
   try {
     const user = await authenticate(body);
     if (!user) return res.status(401).json({ error: "invalid credentials" });
-
     const token = signToken({ uid: user.id, email: user.email, role: user.role });
     res.json({ token, user: { id: user.id, email: user.email, role: user.role } });
   } catch {
