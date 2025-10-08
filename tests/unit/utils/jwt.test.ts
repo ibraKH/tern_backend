@@ -1,4 +1,4 @@
-const loadJwt = () => require("../../../src/utils/jwt");
+import * as jwtUtils from "../../../src/utils/jwt";
 
 describe("utils/jwt", () => {
   const OLD_ENV = process.env;
@@ -13,16 +13,14 @@ describe("utils/jwt", () => {
   });
 
   it("sign() creates a token that verifyToken() decodes", () => {
-    const { signToken, verifyToken } = loadJwt();
-    const token = signToken({ uid: 1, email: "a@b.com", role: "Editor" });
-    const payload = verifyToken(token);
+  const token = jwtUtils.signToken({ uid: 1, email: "a@b.com", role: "Editor" });
+  const payload = jwtUtils.verifyToken(token);
     expect(payload.uid).toBe(1);
     expect(payload.email).toBe("a@b.com");
     expect(payload.role).toBe("Editor");
   });
 
   it("verifyToken() throws on bad token", () => {
-    const { verifyToken } = loadJwt();
-    expect(() => verifyToken("not.a.jwt")).toThrow();
+  expect(() => jwtUtils.verifyToken("not.a.jwt")).toThrow();
   });
 });

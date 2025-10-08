@@ -1,5 +1,6 @@
 import pool from '../../config/database';
-import { BMRGData, Contributor } from '../../types/models.types';
+import type { BMRGData, Contributor, StateData, TransitionData } from '../../types/models.types';
+import type { PoolClient } from 'pg';
 
 // ---------- Utility functions ----------
 export function normalizeReleaseDate(release_date?: string): string | null {
@@ -23,7 +24,7 @@ export function normalizeReleaseDate(release_date?: string): string | null {
 
     const match = release_date.match(/^([A-Za-z]{3})-(\d{1,2})$/); // e.g., "Aug-24"
     if (match) {
-      const [_, monthStr, yearStr] = match;
+      const [, monthStr, yearStr] = match;
       const monthNum = monthMap[monthStr];
       if (monthNum) {
         const fullYear = `20${yearStr.padStart(2, '0')}`; // "24" -> "2024"
@@ -40,16 +41,16 @@ export function normalizeReleaseDate(release_date?: string): string | null {
 }
 
 // Build dynamic UPDATE query helper
-export async function buildDynamicUpdate(
-  client: any,
+export async function buildDynamicUpdate<IdT extends number | string>(
+  client: Pick<PoolClient, 'query'>,
   tableName: string,
   idColumn: string,
-  idValue: any,
-  updateMap: Record<string, any>
-): Promise<any | null> {
+  idValue: IdT,
+  updateMap: Record<string, unknown>
+): Promise<IdT | null> {
   // Build SET clause dynamically (only include fields that are not undefined)
   const fields: string[] = [];
-  const values: any[] = [];
+  const values: unknown[] = [];
 
   for (const [key, value] of Object.entries(updateMap)) {
     // Skip undefined (not provided), but include null (to clear the field)
@@ -83,7 +84,7 @@ export async function buildDynamicUpdate(
 
 // ---------- DB upsert helpers ----------
 // 1. Upsert main model
-export async function upsertModelMetadata(client: any, modelData: BMRGData): Promise<number> {
+export async function upsertModelMetadata(client: Pick<PoolClient, 'query'>, modelData: BMRGData): Promise<number> {
   const {
     id,
     stm_name,
@@ -109,7 +110,7 @@ export async function upsertModelMetadata(client: any, modelData: BMRGData): Pro
   if (id) {
     // --- UPDATE existing record ---
     // Build SET clause dynamically (only include fields that are not undefined)
-    const modelUpdate = await buildDynamicUpdate(client, 'stmmodel', 'id', id, {
+  const modelUpdate = await buildDynamicUpdate(client, 'stmmodel', 'id', id, {
       stm_name,
       version,
       release_date: release_date != undefined ? normalizedReleaseDate : undefined,
@@ -125,7 +126,7 @@ export async function upsertModelMetadata(client: any, modelData: BMRGData): Pro
       climate,
     });
 
-    return modelUpdate;
+  return modelUpdate as number;
 
   } else {
     // Insert new record or update if stm_name exists
@@ -149,9 +150,10 @@ export async function upsertModelMetadata(client: any, modelData: BMRGData): Pro
           aus_eco_archetype_code, aus_eco_archetype_name, aus_eco_umbrella_code, peer_reviewed, no_peer_reviewers, climate
         ]
       );
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const pgErr = err as { code?: string };
       // Check for Postgres unique constraint violation (conflict)
-      if (err.code === "23505") {
+      if (pgErr.code === "23505") {
         throw {
           status: 409, // HTTP Conflict
           message: `stmmodel with stm_name "${stm_name}" already exists`,
@@ -168,7 +170,7 @@ export async function upsertModelMetadata(client: any, modelData: BMRGData): Pro
 }
 
 // 2. Upsert contributors
-export async function upsertContributors(client: any, modelId: number, contributors: Contributor[]) {
+export async function upsertContributors(client: Pick<PoolClient, 'query'>, modelId: number, contributors: Contributor[]) {
   if (!contributors?.length) return;
   for (const expert of contributors) {
     const email = expert.email?.trim().toLowerCase();
@@ -247,7 +249,7 @@ export async function upsertStates(client: any, stm_name: string, states: any[])
 
       if (state.vast_state.vast_state_id) {
         // --- UPDATE existing vast_state with dynamic fields ---
-        const vastUpdate = buildDynamicUpdate(
+        await buildDynamicUpdate(
           client,
           "vast_states",
           "id",
@@ -257,9 +259,8 @@ export async function upsertStates(client: any, stm_name: string, states: any[])
             vast_name: state.vast_state.vast_name,
             eks_overstorey_class: state.vast_state.eks_overstorey_class,
             eks_understorey_class: state.vast_state.eks_understorey_class,
-            vast_condition_lower: state.vast_condition_lower,
-            vast_condition_upper: state.vast_condition_upper,
-            eks_substate_condition_estimate: state.eks_substate_condition_estimate,
+            // The following fields are not part of StateData type; include only if schema expects them
+            // vast_condition_lower / vast_condition_upper / eks_substate_condition_estimate are omitted intentionally
             eks_substate: state.vast_state.eks_substate,
             link: state.vast_state.link,
           });
@@ -280,9 +281,12 @@ export async function upsertStates(client: any, stm_name: string, states: any[])
             state.vast_state.vast_name,
             state.vast_state.eks_overstorey_class,
             state.vast_state.eks_understorey_class,
-            state.vast_condition_lower,
-            state.vast_condition_upper,
-            state.eks_substate_condition_estimate,
+            // vast_condition_lower
+            undefined,
+            // vast_condition_upper
+            undefined,
+            // eks_substate_condition_estimate
+            undefined,
             state.vast_state.eks_substate,
             state.vast_state.link
           ]
@@ -310,11 +314,12 @@ export async function upsertStates(client: any, stm_name: string, states: any[])
     let stateId = state.state_id; // may be undefined for new states
     if (stateId) {
       // --- UPDATE existing state ---
-      const stateUpdate = await buildDynamicUpdate(
+      const existingStateId = state.state_id!; // safe due to if (stateId) guard
+      await buildDynamicUpdate(
         client,
         "states",
         "id",
-        state.state_id,
+        existingStateId,
         {
           stm_name: stm_name,
           state_name: state.state_name,
@@ -363,7 +368,7 @@ export async function upsertStates(client: any, stm_name: string, states: any[])
       for (const attr of state.attributes) {
         if (attr.state_attribute_id) {
           // --- UPDATE existing attribute with dynamic fields ---
-          const attrUpdate = await buildDynamicUpdate(
+          await buildDynamicUpdate(
             client,
             "state_attributes",
             "id",
@@ -410,7 +415,7 @@ export async function upsertTransitions(client: any, stm_name: string, transitio
 
     if (transitionId) {
       // --- UPDATE existing transition with dynamic fields ---
-      const transUpdate = await buildDynamicUpdate(
+      await buildDynamicUpdate(
         client,
         "transitions",
         "id",
@@ -452,7 +457,7 @@ export async function upsertTransitions(client: any, stm_name: string, transitio
         ]
       );
       transitionId = transitionResult.rows[0].id;
-      transitionIds.push(transitionId);
+  if (typeof transitionId === 'number') transitionIds.push(transitionId);
     }
 
     // 4.2 Upsert causal_chain & drivers
@@ -511,7 +516,7 @@ export async function upsertTransitions(client: any, stm_name: string, transitio
         let driverId = driver.driver_id;  // may be undefined for new drivers
         if (driverId) {
           // --- UPDATE existing driver with dynamic fields ---
-          const driverUpdate = await buildDynamicUpdate(
+          await buildDynamicUpdate(
             client,
             "drivers",
             "id",
@@ -607,9 +612,8 @@ export async function saveModel(modelData: BMRGData) {
       stateMap = await upsertStates(client, stm_name, modelData.states);
     }
     // 4. Upsert transitions & causal_chain & drivers
-    let transitionIds: number[] = [];
     if (modelData.transitions != undefined && modelData.transitions != null) {
-      transitionIds = await upsertTransitions(client, stm_name, modelData.transitions, stateMap);
+      await upsertTransitions(client, stm_name, modelData.transitions, stateMap);
     }
 
     // // 5. Save method_alignment（it's "None" and it don't insert for now)

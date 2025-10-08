@@ -1,7 +1,27 @@
-import { normalizeReleaseDate, buildDynamicUpdate, upsertModelMetadata, upsertContributors, upsertStates, upsertTransitions, saveModel } from "../../../src/services/models/save.service";
+import { normalizeReleaseDate, buildDynamicUpdate, upsertModelMetadata, upsertContributors, upsertStates, upsertTransitions } from "../../../src/services/models/save.service";
 import pool from "../../../src/config/database";
 import { getAllModels, getModelByName } from "../../../src/services/models/show.service";
-import { Contributor } from "../../../src/types/models.types";
+import type { Contributor, BMRGData, StateData, TransitionData, CausalChain, ChainDriver } from "../../../src/types/models.types";
+
+// Test helpers to build typed objects succinctly
+const makeState = (overrides: Partial<StateData>): StateData => ({
+  state_name: 'State',
+  vast_state: {},
+  condition_upper: 1,
+  condition_lower: 0,
+  eks_condition_estimate: 0.5,
+  attributes: [],
+  ...overrides,
+});
+const makeDriver = (d: Partial<ChainDriver>): ChainDriver => ({ driver: 'D', description: null, driver_group: null, ...d });
+const makeChain = (c: Partial<CausalChain>): CausalChain => ({ name: 'Chain', chain_part: 'Management Intervention', drivers: [], ...c });
+const makeTransition = (t: Partial<TransitionData>): TransitionData => ({
+  start_state_id: 1,
+  end_state_id: 2,
+  transition_delta: 0,
+  causal_chain: [],
+  ...t,
+});
 
 describe('normalizeReleaseDate', () => {
   it('should normalize "Aug-24" to "2024-08-01"', () => {
@@ -185,7 +205,7 @@ describe("upsertContributors", () => {
       .mockResolvedValueOnce({ rows: [{ id: 101 }] })
       .mockResolvedValueOnce(undefined);
 
-    await upsertContributors(mockClient as any, 20, contributors);
+  await upsertContributors(mockClient, 20, contributors);
 
     expect(mockClient.query).toHaveBeenNthCalledWith(
       1,
@@ -213,18 +233,18 @@ describe("upsertContributors", () => {
       .mockResolvedValueOnce({ rows: [{ id: 55 }] })
       .mockResolvedValueOnce(undefined);
 
-    await upsertContributors(mockClient as any, 33, contributors);
+  await upsertContributors(mockClient, 33, contributors);
 
     expect(mockClient.query).toHaveBeenNthCalledWith(
       1,
       expect.stringContaining("SELECT id FROM contributors"),
       ["carol@test.com"]
     );
-    expect(
-      (mockClient.query as jest.Mock).mock.calls.some(([sql]: any[]) =>
-        (sql as string).includes("INSERT INTO contributors")
-      )
-    ).toBe(false);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const insertedContrib = (mockClient.query as jest.Mock).mock.calls.some(([sql]: any) =>
+      String(sql).includes("INSERT INTO contributors")
+    );
+    expect(insertedContrib).toBe(false);
 
     expect(mockClient.query).toHaveBeenNthCalledWith(
       2,
@@ -247,7 +267,7 @@ describe("upsertContributors", () => {
       .mockResolvedValueOnce(undefined)
       .mockResolvedValueOnce(undefined);
 
-    await upsertContributors(mockClient as any, 44, contributors);
+  await upsertContributors(mockClient, 44, contributors);
 
     expect(mockClient.query).toHaveBeenNthCalledWith(
       1,
@@ -272,7 +292,7 @@ describe("upsertContributors", () => {
       .mockResolvedValueOnce({ rows: [{ id: 101 }] })
       .mockResolvedValueOnce(undefined);
 
-    await upsertContributors(mockClient as any, 20, contributors);
+  await upsertContributors(mockClient, 20, contributors);
 
     expect(mockClient.query).toHaveBeenNthCalledWith(
       1,
@@ -282,7 +302,7 @@ describe("upsertContributors", () => {
   });
 
   it("does nothing when contributors array is empty", async () => {
-    await upsertContributors(mockClient as any, 30, []);
+  await upsertContributors(mockClient, 30, []);
     expect(mockClient.query).not.toHaveBeenCalled();
   });
 });
@@ -409,7 +429,9 @@ jest.mock("../../../src/config/database", () => {
   };
 });
 
-const client: any = (pool as any)._client;
+interface TestClient { query: jest.Mock; release: jest.Mock; }
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const client = (pool as any)._client as TestClient;
 
 describe("model.service", () => {
   beforeEach(() => {

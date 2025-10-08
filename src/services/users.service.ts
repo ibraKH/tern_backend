@@ -1,4 +1,4 @@
-import { Contributor } from "../types/models.types";
+import type { Contributor } from "../types/models.types";
 import pool from "../config/database";
 
 // Get all contributors

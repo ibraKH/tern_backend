@@ -1,14 +1,27 @@
 import pool from "../config/database";
 import { hash, verify } from "../utils/hash";
 import type { Signup, Login, User } from "../types/auth.types";
+import type { PoolClient } from "pg";
 
-const toUser = (row: any): User => ({
-  id: row.id, email: row.email, password_hash: row.password_hash,
-  role: row.role, contributor_id: row.contributor_id
+// Shape returned from auth_users queries
+interface UserRow {
+  id: number;
+  email: string;
+  password_hash: string;
+  role: User["role"];
+  contributor_id: number | null;
+}
+
+const toUser = (row: UserRow): User => ({
+  id: row.id,
+  email: row.email,
+  password_hash: row.password_hash,
+  role: row.role,
+  contributor_id: row.contributor_id,
 });
 
 async function linkContributorToUserTx(
-  client: any,
+  client: PoolClient,
   userId: number,
   name: string,
   email: string
@@ -68,7 +81,7 @@ export async function createUser(dto: Signup): Promise<User> {
 }
 
 export async function getUserByEmail(email: string): Promise<User | null> {
-  const { rows } = await pool.query(`SELECT * FROM auth_users WHERE email=$1`, [email.toLowerCase()]);
+  const { rows } = await pool.query<UserRow>(`SELECT id, email, password_hash, role, contributor_id FROM auth_users WHERE email=$1`, [email.toLowerCase()]);
   return rows[0] ? toUser(rows[0]) : null;
 }
 
