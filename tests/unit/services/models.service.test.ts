@@ -179,7 +179,7 @@ describe('upsertStates', () => {
         jest.clearAllMocks();
     });
 
-    it('should insert new state with vast_state and attributes', async () => {
+    it('should insert new state with vast_state and attributes and return fake->real id map', async () => {
         mockClient.query
             .mockResolvedValueOnce({ rows: [{ id: 101 }] }) // vast_state insert
             .mockResolvedValueOnce({ rows: [{ id: 202 }] }) // state insert
@@ -187,6 +187,7 @@ describe('upsertStates', () => {
 
         const states: StateData[] = [
           makeState({
+            fake_state_id: 999, // for mapping test
             state_name: 'Rainforest',
             // Provide external format requiring mapping inside service
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -209,7 +210,9 @@ describe('upsertStates', () => {
             expect.stringContaining('INSERT INTO state_attributes'),
             expect.any(Array),
         );
-        expect(result).toEqual([202]);
+
+        // 现在 upsertStates 返回的是映射表：fake_id -> real_id
+        expect(result).toEqual({ 999: 202 });
     });
 
   it('should throw error for invalid elicitation_type', async () => {
@@ -379,7 +382,10 @@ mockClient.query
   .mockResolvedValueOnce({ rows: [{ id: 202 }] }) // driver2 insert
   .mockResolvedValueOnce({ rows: [{ id: 302 }] }); // causal_chain for driver2
 
-    const result = await upsertTransitions(mockClient, 'STM1', transitions);
+    // fake_state_id -> real state_id mapping (no mapping needed in this test)
+    const stateMap: Record<number, number> = {};
+
+    const result = await upsertTransitions(mockClient, 'STM1', transitions, stateMap);
 
     // transition insert
     expect(mockClient.query).toHaveBeenCalledWith(
@@ -409,8 +415,38 @@ mockClient.query
     expect(result).toEqual([101]);
   });
 
+  it('maps fake_state_id to real state_id when inserting transition', async () => {
+    const transitions: TransitionData[] = [
+      makeTransition({
+        start_state_id: 9001, // fake
+        end_state_id: 9002,   // fake
+        transition_id: 2002,
+        time_100: 10,
+        time_25: 5,
+        likelihood_25: 0.2,
+        likelihood_100: 0.6,
+        transition_delta: 1,
+      })
+    ];
+
+    // 提供 fake->real 的映射
+    const stateMap: Record<number, number> = { 9001: 11, 9002: 22 };
+
+    mockClient.query
+      .mockResolvedValueOnce({ rows: [{ id: 777 }] });
+
+    await upsertTransitions(mockClient, 'STM2', transitions, stateMap);
+
+    // 确认最终写入使用的是 11 和 22，而不是 9001/9002
+    const [, params] = (mockClient.query as jest.Mock).mock.calls.find(
+      ([sql]: any[]) => (sql as string).includes('INSERT INTO transitions')
+    )!;
+    expect(params[1]).toBe(11); // start_state_id
+    expect(params[2]).toBe(22); // end_state_id
+  });
+
   it('should do nothing if transitions array is empty', async () => {
-    const result = await upsertTransitions(mockClient, 'STM1', []);
+    const result = await upsertTransitions(mockClient, 'STM1', [], {});
     expect(mockClient.query).not.toHaveBeenCalled();
     expect(result).toEqual([]);
   });

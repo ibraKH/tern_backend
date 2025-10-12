@@ -211,8 +211,9 @@ export async function upsertContributors(client: Pick<PoolClient, 'query'>, mode
 }
 
 // 3. Upsert states & vast_states & state_attributes
-export async function upsertStates(client: Pick<PoolClient, 'query'>, stm_name: string, states: StateData[]): Promise<number[]> {
-  const stateIds: number[] = [];
+export async function upsertStates(client: Pick<PoolClient, 'query'>, stm_name: string, states: StateData[]): Promise<Record<number, number>> {
+  // fake_state_id -> real_state_id mapping
+  const stateMap: Record<number, number> = {};
 
   for (const state of states) {
     // 3.1 Upsert vast_state
@@ -352,7 +353,18 @@ export async function upsertStates(client: Pick<PoolClient, 'query'>, stm_name: 
         ]
       );
       stateId = stateResult.rows[0]?.id;
-  if (typeof stateId === 'number') stateIds.push(stateId);
+
+      // Ensure we have a concrete number from here on
+      if (stateId == null) {
+        throw new Error("Upsert state failed: no id returned from database");
+      }
+    }
+
+    // Map fake_state_id to real state_id
+    if (state.fake_state_id != null) {
+      stateMap[state.fake_state_id] = stateId;
+    } else {
+      stateMap[stateId] = stateId;
     }
 
     // 3.3 Upsert state_attributes
@@ -392,16 +404,19 @@ export async function upsertStates(client: Pick<PoolClient, 'query'>, stm_name: 
 
   }
 
-  return stateIds;
+  return stateMap;
 }
 
 // 4. Upsert transitions & causal_chain & drivers
-export async function upsertTransitions(client: Pick<PoolClient, 'query'>, stm_name: string, transitions: TransitionData[]): Promise<number[]> {
+export async function upsertTransitions(client: Pick<PoolClient, 'query'>, stm_name: string, transitions: TransitionData[], stateMap: Record<number, number>): Promise<number[]> {
   const transitionIds: number[] = [];
   for (const transition of transitions) {
     // There is notes field in the TransitionData type, but no such column in the database
     // 4.1 Upsert transition
     let transitionId = transition.id; // may be undefined for new transitions
+
+    const startStateId = stateMap[transition.start_state_id] ? stateMap[transition.start_state_id] : transition.start_state_id;
+    const endStateId = stateMap[transition.end_state_id] ? stateMap[transition.end_state_id] : transition.end_state_id;
 
     if (transitionId) {
       // --- UPDATE existing transition with dynamic fields ---
@@ -412,8 +427,8 @@ export async function upsertTransitions(client: Pick<PoolClient, 'query'>, stm_n
         transitionId,
         {
           stm_name: stm_name,
-          start_state_id: transition.start_state_id,  // start_state_id and end_state_id must exist in states table 
-          end_state_id: transition.end_state_id,
+          start_state_id: startStateId,  // start_state_id and end_state_id must exist in states table 
+          end_state_id: endStateId,
           transition_id: transition.transition_id,   // is not the id of the transition, Links to the Australianeco_arche type and MVG cross walk.
           time_100: transition.time_100,
           time_25: transition.time_25,
@@ -436,8 +451,8 @@ export async function upsertTransitions(client: Pick<PoolClient, 'query'>, stm_n
         [
           // transition.id is serial in database, so don't insert it
           stm_name,
-          transition.start_state_id,  // start_state_id and end_state_id must exist in states table
-          transition.end_state_id,
+          startStateId,  // start_state_id and end_state_id must exist in states table
+          endStateId,
           transition.transition_id,   // is not the id of the transition, Links to the Australianeco_arche type and MVG cross walk.
           transition.time_100,
           transition.time_25,
@@ -588,12 +603,13 @@ export async function saveModel(modelData: BMRGData) {
       await upsertContributors(client, modelId, modelData.contributing_experts);
     }
     // 3. Upsert states & vast_states & state_attributes
+    let stateMap: Record<number, number> = {};
     if (modelData.states != undefined && modelData.states != null) {
-      await upsertStates(client, stm_name, modelData.states);
+      stateMap = await upsertStates(client, stm_name, modelData.states);
     }
     // 4. Upsert transitions & causal_chain & drivers
     if (modelData.transitions != undefined && modelData.transitions != null) {
-      await upsertTransitions(client, stm_name, modelData.transitions);
+      await upsertTransitions(client, stm_name, modelData.transitions, stateMap);
     }
 
     // // 5. Save method_alignment（it's "None" and it don't insert for now)
