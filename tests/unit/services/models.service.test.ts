@@ -439,7 +439,7 @@ mockClient.query
 
     // 确认最终写入使用的是 11 和 22，而不是 9001/9002
     const [, params] = (mockClient.query as jest.Mock).mock.calls.find(
-      ([sql]: any[]) => (sql as string).includes('INSERT INTO transitions')
+      ([sql]: [string, unknown[]]) => (sql as string).includes('INSERT INTO transitions')
     )!;
     expect(params[1]).toBe(11); // start_state_id
     expect(params[2]).toBe(22); // end_state_id
