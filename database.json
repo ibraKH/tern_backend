@@ -1,20 +1,39 @@
 {
+  "defaultEnv": "dev",
+
   "dev": {
     "driver": "pg",
-    "host": { "ENV": "PG_HOST" },
-    "port": { "ENV": "PG_PORT" },
-    "database": { "ENV": "PG_DB" },
-    "user": { "ENV": "PG_USER" },
-    "password": { "ENV": "PG_PASSWORD" }
+    "host": { "ENV": "PG_HOST", "default": "127.0.0.1" },
+    "port": { "ENV": "PG_PORT", "default": 5432 },
+    "database": "EKS_2.0",
+    "user": "postgres",
+    "password": "postgres",
+    "schema": "public",
+    "ssl": { "ENV": "PG_SSL", "default": false }
   },
+
+  "dev_temp": {
+    "driver": "pg",
+    "host": { "ENV": "PG_HOST", "default": "127.0.0.1" },
+    "port": { "ENV": "PG_PORT", "default": 5432 },
+    "database": "EKS_2.0",
+    "user": "postgres",
+    "password": "postgres",
+    "schema": "temporary",
+    "ssl": { "ENV": "PG_SSL", "default": false }
+  },
+
   "test": {
     "driver": "pg",
-    "host": { "ENV": "PG_HOST" },
-    "port": { "ENV": "PG_PORT" },
+    "host": { "ENV": "PG_HOST", "default": "127.0.0.1" },
+    "port": { "ENV": "PG_PORT", "default": 5432 },
     "database": "storebackend_test",
-    "user": { "ENV": "PG_USER" },
-    "password": { "ENV": "PG_PASSWORD" }
+    "user": "postgres",
+    "password": "postgres",
+    "schema": "public",
+    "ssl": { "ENV": "PG_SSL", "default": false }
   },
+
   "production": {
     "driver": "pg",
     "connectionString": { "ENV": "DATABASE_URL" },
