@@ -2,6 +2,8 @@ import type { Request, Response } from 'express';
 import express from 'express';
 import cors from 'cors';
 import helmet from "helmet";
+import swaggerUi from "swagger-ui-express";
+import { swaggerSpec } from "./swagger/swagger";
 
 import authRoutes from './routes/auth';
 import modelsRoutes from './routes/models';
@@ -13,11 +15,12 @@ const app = express();
 app.use(helmet());
 app.use(cors()); // TODO: restrict in production
 app.use(express.json());
-
+app.use("/docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 // Routes
 app.use('/auth', authRoutes);     
 app.use('/models', requireAuth, modelsRoutes);
+app.get("/openapi.json", (_req, res) => res.json(swaggerSpec));
 
 // 404 handler
 app.use((req: Request, res: Response) => {
