@@ -403,13 +403,21 @@ mockClient.query
       expect.arrayContaining([ 'Driver2', 'Desc2', 'Group2' ])
     );
 
+    // causal_chain is inserted without driver_id (junction table `chain_driver` stores driver links)
+    // causal_chain uses the DB transition id returned from the transition INSERT (mocked as 101)
     expect(mockClient.query).toHaveBeenCalledWith(
       expect.stringContaining('INSERT INTO causal_chain'),
-      expect.arrayContaining([ 1001, 'Chain1', 'Management Intervention', 201 ])
+      expect.arrayContaining([ 101, 'Chain1', 'Management Intervention' ])
     );
     expect(mockClient.query).toHaveBeenCalledWith(
       expect.stringContaining('INSERT INTO causal_chain'),
-      expect.arrayContaining([ 1001, 'Chain1', 'Management Intervention', 202 ])
+      expect.arrayContaining([ 101, 'Chain1', 'Management Intervention' ])
+    );
+
+    // ensure chain_driver junction entries are created linking causal_chain <-> drivers
+    expect(mockClient.query).toHaveBeenCalledWith(
+      expect.stringContaining('INSERT INTO chain_driver'),
+      expect.arrayContaining([ expect.any(Number), expect.any(Number) ])
     );
 
     expect(result).toEqual([101]);
@@ -454,7 +462,9 @@ mockClient.query
 
 jest.mock("../../../src/config/database", () => {
   const client = {
-    query: jest.fn(),
+    // Default to resolving with empty rows to make tests robust when specific
+    // calls are not individually mocked with mockResolvedValueOnce
+    query: jest.fn().mockResolvedValue({ rows: [] }),
     release: jest.fn(),
   };
   return {
