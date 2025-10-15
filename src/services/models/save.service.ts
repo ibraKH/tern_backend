@@ -156,7 +156,7 @@ export async function upsertModelMetadata(client: Pick<PoolClient, 'query'>, mod
       if (pgErr.code === "23505") {
         throw {
           status: 409, // HTTP Conflict
-          message: `stmmodel with stm_name "${stm_name}" already exists`,
+          message: `A model with the name ${stm_name} already exists`,
         };
       }
       // Re-throw any other error

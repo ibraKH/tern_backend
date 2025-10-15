@@ -7,8 +7,15 @@
     "esModuleInterop": true,
     "rootDir": "src",
     "outDir": "dist",
-    "strict": true
+    "strict": true,
+    "typeRoots": [
+      "./node_modules/@types",
+      "./src/types"
+    ]
   },
   "include": ["src/**/*.ts"],
-  "exclude": ["node_modules", "dist"]
+  "exclude": ["node_modules", "dist"],
+  "ts-node": {
+    "files": true
+  }
 }

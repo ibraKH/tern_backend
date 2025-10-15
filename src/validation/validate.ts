@@ -1,32 +1,87 @@
-import type { Request, Response, NextFunction } from 'express';
-import type { ZodSchema } from 'zod';
+import type { Request, Response, NextFunction } from "express";
+import type { ZodError, ZodIssue, ZodTypeAny } from "zod";
+import { ValidationError } from "../errors";
+
+type Section = "body" | "params" | "query";
 
 interface Schemas {
-  body?: ZodSchema;
-  params?: ZodSchema;
-  query?: ZodSchema;
+  body?: ZodTypeAny;
+  params?: ZodTypeAny;
+  query?: ZodTypeAny;
+}
+
+type ValidationDetail = {
+  section: Section;
+  path: string;
+  message: string;
+  code: ZodIssue["code"];
+  expected?: unknown;
+  received?: unknown;
+};
+
+function issuesToDetails(section: Section, issues: ZodIssue[]): ValidationDetail[] {
+  return issues.map((i) => {
+    const base: ValidationDetail = {
+      section,
+      path: Array.isArray(i.path) ? i.path.join(".") : "",
+      message: i.message,
+      code: i.code,
+    };
+
+    if (i.code === "invalid_type" && "expected" in i && "received" in i) {
+      return { ...base, expected: i.expected, received: i.received };
+    }
+    return base;
+  });
+}
+
+function isZodError(err: unknown): err is ZodError {
+  return typeof err === "object" && err !== null && "issues" in err;
 }
 
 export function validate(schemas: Schemas) {
-  return (req: Request, res: Response, next: NextFunction) => {
-    const errors: Record<string, unknown> = {};
+  return async (req: Request, _res: Response, next: NextFunction) => {
+    const details: ValidationDetail[] = [];
 
-    if (schemas.body) {
-      const r = schemas.body.safeParse(req.body);
-      if (!r.success) errors.body = r.error.format(); else req.body = r.data;
-    }
-    if (schemas.params) {
-      const r = schemas.params.safeParse(req.params);
-      if (!r.success) errors.params = r.error.format(); else req.params = r.data as unknown as Record<string, string>;
-    }
-    if (schemas.query) {
-      const r = schemas.query.safeParse(req.query);
-      if (!r.success) errors.query = r.error.format(); else req.query = r.data as unknown as Record<string, string>;
-    }
+    const parseSection = async <T>(
+      section: Section,
+      schema: ZodTypeAny | undefined,
+      value: unknown
+    ): Promise<T | undefined> => {
+      if (!schema) return undefined;
+      const result = await schema.safeParseAsync(value);
+      if (!result.success) {
+        details.push(...issuesToDetails(section, result.error.issues));
+        return undefined;
+      }
+      return result.data as T;
+    };
 
-    if (Object.keys(errors).length) {
-      return res.status(400).json({ message: 'Validation failed', errors });
+    try {
+      const [bodyParsed, paramsParsed, queryParsed] = await Promise.all([
+        parseSection("body", schemas.body, req.body),
+        parseSection("params", schemas.params, req.params),
+        parseSection("query", schemas.query, req.query),
+      ]);
+
+      if (details.length) {
+        return next(new ValidationError(details));
+      }
+
+      if (bodyParsed !== undefined) req.body = bodyParsed;
+      if (paramsParsed !== undefined) {
+        req.params = paramsParsed as typeof req.params;
+      }
+      if (queryParsed !== undefined) {
+        req.query = queryParsed as typeof req.query;
+      }
+
+      return next();
+    } catch (err: unknown) {
+      if (isZodError(err)) {
+        return next(new ValidationError(issuesToDetails("body", err.issues)));
+      }
+      return next(err as Error);
     }
-    next();
   };
 }
