@@ -2,6 +2,7 @@ import pool from "../config/database";
 import { hash, verify } from "../utils/hash";
 import type { Signup, Login, User } from "../types/auth.types";
 import type { PoolClient } from "pg";
+import { DbError, ConflictError } from "../errors";
 
 // Shape returned from auth_users queries
 interface UserRow {
@@ -12,6 +13,12 @@ interface UserRow {
   contributor_id: number | null;
 }
 
+interface PostgresError extends Error {
+  code?: string;
+  detail?: string;
+  constraint?: string;
+}
+
 const toUser = (row: UserRow): User => ({
   id: row.id,
   email: row.email,
@@ -19,6 +26,15 @@ const toUser = (row: UserRow): User => ({
   role: row.role,
   contributor_id: row.contributor_id,
 });
+
+function isPostgresError(err: unknown): err is PostgresError {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    "code" in err &&
+    typeof (err as PostgresError).code === "string"
+  );
+}
 
 async function linkContributorToUserTx(
   client: PoolClient,
@@ -72,9 +88,12 @@ export async function createUser(dto: Signup): Promise<User> {
 
     await client.query("COMMIT");
     return toUser(finalUser[0]);
-  } catch (err) {
+  } catch (err : unknown) {
     await client.query("ROLLBACK");
-    throw err;
+    if (isPostgresError(err) && err.code === "23505") {
+      throw new ConflictError("email already in use", { field: "email" });
+    }
+    throw new DbError(err instanceof Error ? err.message : String(err));
   } finally {
     client.release();
   }

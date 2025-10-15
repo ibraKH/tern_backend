@@ -22,6 +22,10 @@ const passwordSchema = z
   .regex(/[^A-Za-z0-9]/, "must contain a special char")
   .refine((val) => !/\s/.test(val), "no spaces allowed");
 
+const loginPasswordSchema = z
+  .string()
+  .min(1, "password is required");
+
 export const signupSchema = z.object({
   name: nameSchema,
   email: emailSchema,
@@ -31,7 +35,7 @@ export const signupSchema = z.object({
 
 export const loginSchema = z.object({
   email: emailSchema,
-  password: passwordSchema
+  password: loginPasswordSchema
 });
 
 export type SignupInput = z.infer<typeof signupSchema>;

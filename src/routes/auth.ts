@@ -1,9 +1,10 @@
-import type { Request, Response } from 'express';
+import type { Request, Response, NextFunction } from 'express';
 import express from 'express';
 import { createUser, authenticate, getUserByEmail } from "../services/auth.service";
 import { signToken } from "../utils/jwt";
 import { validate } from '../validation/validate';
 import { signupSchema, loginSchema } from '../validation/auth.schemas';
+import { AppError, AuthInvalidError, ConflictError } from "../errors";
 
 const auth = express.Router();
 
@@ -136,16 +137,16 @@ auth.get('/health', (req: Request, res: Response) => {
  *                   type: string
  *                   example: signup failed
  */
-auth.post("/signup", validate({ body: signupSchema }), async (req : Request, res : Response) => {
+auth.post("/signup", validate({ body: signupSchema }), async (req : Request, res : Response, next: NextFunction) => {
   const body = req.body;
   try {
-    // TODO: implement validation here for the input data
     const existing = await getUserByEmail(body.email);
-    if (existing) return res.status(409).json({ error: "email already in use" });
+    if (existing) throw new ConflictError("email already in use", { field: "email" });
     const user = await createUser(body);
     const token = signToken({ uid: user.id, email: user.email, role: user.role });
     res.status(201).json({ token, user: { id: user.id, email: user.email, role: user.role } });
   } catch (e: unknown) {
+    if (e instanceof AppError) return next(e);
     console.error("[/auth/signup] error:", (e as Error).message || e);
     res.status(500).json({ error: "signup failed" });
   }
@@ -192,14 +193,15 @@ auth.post("/signup", validate({ body: signupSchema }), async (req : Request, res
  *                   type: string
  *                   example: login failed
  */
-auth.post("/login", validate({ body: loginSchema }), async (req : Request, res : Response) => {
+auth.post("/login", validate({ body: loginSchema }), async (req : Request, res : Response, next: NextFunction) => {
   const body = req.body;
   try {
     const user = await authenticate(body);
-    if (!user) return res.status(401).json({ error: "invalid credentials" });
+    if (!user) throw new AuthInvalidError();
     const token = signToken({ uid: user.id, email: user.email, role: user.role });
     res.json({ token, user: { id: user.id, email: user.email, role: user.role } });
-  } catch {
+  } catch (e: unknown) {
+    if (e instanceof AppError) return next(e);
     res.status(500).json({ error: "login failed" });
   }
 });
