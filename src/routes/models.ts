@@ -3,6 +3,8 @@ import express from 'express';
 import { saveModel } from '../services/models/save.service';
 import { getAllModels, getModelByName } from '../services/models/show.service';
 import { requireRole } from '../middlewares/role.middleware';
+import { getAllModelsSchema, getModelByNameSchema } from '../validation/models.validation';
+import { validate } from '../validation/validate';
 
 const models = express.Router();
 /**
@@ -333,7 +335,7 @@ models.get('/health', (req: Request, res: Response) => {
  *           application/json:
  *             schema: { $ref: '#/components/schemas/ErrorResponse' }
  */
-models.get('/all', requireRole(["Admin"]), async (req: Request, res: Response) => {
+models.get('/all', requireRole(["Admin"]), validate({ query: getAllModelsSchema }), async (req: Request, res: Response) => {
   try {
     const modelNames = await getAllModels();
     res.json(modelNames);
@@ -387,7 +389,7 @@ models.get('/all', requireRole(["Admin"]), async (req: Request, res: Response) =
  *           application/json:
  *             schema: { $ref: '#/components/schemas/ErrorResponse' }
  */
-models.get('/:name', requireRole(["Admin", "Editor", "Viewer"]), async (req: Request, res: Response) => {
+models.get('/:name', requireRole(["Admin", "Editor", "Viewer"]), validate({ params: getModelByNameSchema }), async (req: Request, res: Response) => {
   try {
     const { name } = req.params;
     const model = await getModelByName(name);
