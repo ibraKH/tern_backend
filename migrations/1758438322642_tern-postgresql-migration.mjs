@@ -280,14 +280,6 @@ export const up = (pgm) => {
       onDelete: 'SET NULL',
     },
   });
-  pgm.addConstraint('causal_chain', 'fk_causal_chain_driver', {
-    foreignKeys: {
-      columns: 'driver_id',
-      references: 'drivers(id)',
-      onUpdate: 'CASCADE',
-      onDelete: 'SET NULL',
-    },
-  });
 
   pgm.createTable('aus_ecomodel_archetype', {
     id: 'id',
@@ -320,10 +312,10 @@ export const up = (pgm) => {
   }, { ifNotExists: true });
 
   pgm.createTable('model_contributions', {
-  id: 'id',
-  stm_id: { type: 'integer', notNull: true },
-  contributor_id: { type: 'integer', notNull: true },
-  contribution_type: { type: 'contribution_type', notNull: true },
+    id: 'id',
+    stm_id: { type: 'integer', notNull: true },
+    contributor_id: { type: 'integer', notNull: true },
+    contribution_type: { type: 'contribution_type', notNull: true },
   }, { ifNotExists: true });
 
   pgm.addConstraint('model_contributions', 'fk_mc_model', {
@@ -345,12 +337,12 @@ export const up = (pgm) => {
   });
 
   pgm.addConstraint('model_contributions', 'uq_mc_unique_pair', {
-  unique: ['stm_id', 'contributor_id'],
+    unique: ['stm_id', 'contributor_id'],
   });
 
   pgm.createTable('auth_users', {
     id: { type: 'serial', primaryKey: true },
-    email: { type: 'varchar(255)', notNull: true , unique: true },
+    email: { type: 'varchar(255)', notNull: true, unique: true },
     password_hash: { type: 'text', notNull: true },
     role: { type: 'auth_role', notNull: true, default: 'Viewer' },
     contributor_id: { type: 'integer' },
@@ -512,12 +504,12 @@ export const up = (pgm) => {
   }, { ifNotExists: true });
 
   // FKs: method_causal_chain
-  pgm.addConstraint('method_causal_chain', 'fk_mcc_transition', {
+  pgm.addConstraint('method_causal_chain', 'fk_mcc_transitions', {
     foreignKeys: {
       columns: 'transition_id',
-      references: '"transitions"("transition_id")',
+      references: '"transitions"(id)',
       onUpdate: 'CASCADE',
-      onDelete: 'CASCADE',
+      onDelete: 'SET NULL',
     },
   });
   pgm.addConstraint('method_causal_chain', 'fk_mcc_method_alignment', {
@@ -536,6 +528,35 @@ export const up = (pgm) => {
       onDelete: 'CASCADE',
     },
   });
+  // 建表
+  pgm.createTable('chain_driver', {
+    id: 'id',
+    causal_chain_id: { type: 'integer', notNull: true },
+    driver_id: { type: 'integer', notNull: true },
+  }, { ifNotExists: true });
+
+  // 外键
+  pgm.addConstraint('chain_driver', 'fk_chain_driver_chain', {
+    foreignKeys: {
+      columns: 'causal_chain_id',
+      references: 'causal_chain(id)',
+      onUpdate: 'CASCADE',
+      onDelete: 'CASCADE',
+    },
+  });
+  pgm.addConstraint('chain_driver', 'fk_chain_driver_driver', {
+    foreignKeys: {
+      columns: 'driver_id',
+      references: 'drivers(id)',
+      onUpdate: 'CASCADE',
+      onDelete: 'CASCADE',
+    },
+  });
+
+  // 去重约束 + 索引
+  pgm.addConstraint('chain_driver', 'uq_chain_driver_pair', { unique: ['causal_chain_id', 'driver_id'] });
+  pgm.createIndex('chain_driver', 'causal_chain_id', { name: 'idx_chain_driver_chain', ifNotExists: true });
+  pgm.createIndex('chain_driver', 'driver_id', { name: 'idx_chain_driver_driver', ifNotExists: true });
 
   // 4) Helpful indexes
   pgm.createIndex('states', 'stm_name', { name: 'idx_states_stm_name', ifNotExists: true });
@@ -606,6 +627,9 @@ export const down = (pgm) => {
   pgm.dropType('elicatation_type', { ifExists: true });
   pgm.dropType('chain_part_type', { ifExists: true });
   pgm.dropType('attribute_types', { ifExists: true });
+  pgm.dropIndex('chain_driver', 'driver_id', { name: 'idx_chain_driver_driver', ifExists: true });
+  pgm.dropIndex('chain_driver', 'causal_chain_id', { name: 'idx_chain_driver_chain', ifExists: true });
+  pgm.dropTable('chain_driver', { ifExists: true, cascade: true });
 
   // Drop PostGIS
   pgm.dropExtension('postgis', { ifExists: true });
