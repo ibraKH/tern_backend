@@ -110,7 +110,7 @@ export async function upsertModelMetadata(client: Pick<PoolClient, 'query'>, mod
   if (id) {
     // --- UPDATE existing record ---
     // Build SET clause dynamically (only include fields that are not undefined)
-  const modelUpdate = await buildDynamicUpdate(client, 'stmmodel', 'id', id, {
+    const modelUpdate = await buildDynamicUpdate(client, 'stmmodel', 'id', id, {
       stm_name,
       version,
       release_date: release_date != undefined ? normalizedReleaseDate : undefined,
@@ -126,7 +126,7 @@ export async function upsertModelMetadata(client: Pick<PoolClient, 'query'>, mod
       climate,
     });
 
-  return modelUpdate as number;
+    return modelUpdate as number;
 
   } else {
     // Insert new record or update if stm_name exists
@@ -211,8 +211,9 @@ export async function upsertContributors(client: Pick<PoolClient, 'query'>, mode
 }
 
 // 3. Upsert states & vast_states & state_attributes
-export async function upsertStates(client: Pick<PoolClient, 'query'>, stm_name: string, states: StateData[]): Promise<number[]> {
-  const stateIds: number[] = [];
+export async function upsertStates(client: Pick<PoolClient, 'query'>, stm_name: string, states: StateData[]): Promise<Record<number, number>> {
+  // frontend_state_id -> real_state_id mapping
+  const stateMap: Record<number, number> = {};
 
   for (const state of states) {
     // 3.1 Upsert vast_state
@@ -352,7 +353,18 @@ export async function upsertStates(client: Pick<PoolClient, 'query'>, stm_name: 
         ]
       );
       stateId = stateResult.rows[0]?.id;
-  if (typeof stateId === 'number') stateIds.push(stateId);
+
+      // Ensure we have a concrete number from here on
+      if (stateId == null) {
+        throw new Error("Upsert state failed: no id returned from database");
+      }
+    }
+
+    // Map frontend_state_id to real state_id
+    if (state.frontend_state_id != null) {
+      stateMap[state.frontend_state_id] = stateId;
+    } else {
+      stateMap[stateId] = stateId;
     }
 
     // 3.3 Upsert state_attributes
@@ -392,16 +404,19 @@ export async function upsertStates(client: Pick<PoolClient, 'query'>, stm_name: 
 
   }
 
-  return stateIds;
+  return stateMap;
 }
 
 // 4. Upsert transitions & causal_chain & drivers
-export async function upsertTransitions(client: Pick<PoolClient, 'query'>, stm_name: string, transitions: TransitionData[]): Promise<number[]> {
+export async function upsertTransitions(client: Pick<PoolClient, 'query'>, stm_name: string, transitions: TransitionData[], stateMap: Record<number, number>): Promise<number[]> {
   const transitionIds: number[] = [];
   for (const transition of transitions) {
     // There is notes field in the TransitionData type, but no such column in the database
     // 4.1 Upsert transition
     let transitionId = transition.id; // may be undefined for new transitions
+
+    const startStateId = stateMap[transition.start_state_id] ? stateMap[transition.start_state_id] : transition.start_state_id;
+    const endStateId = stateMap[transition.end_state_id] ? stateMap[transition.end_state_id] : transition.end_state_id;
 
     if (transitionId) {
       // --- UPDATE existing transition with dynamic fields ---
@@ -412,8 +427,8 @@ export async function upsertTransitions(client: Pick<PoolClient, 'query'>, stm_n
         transitionId,
         {
           stm_name: stm_name,
-          start_state_id: transition.start_state_id,  // start_state_id and end_state_id must exist in states table 
-          end_state_id: transition.end_state_id,
+          start_state_id: startStateId,  // start_state_id and end_state_id must exist in states table 
+          end_state_id: endStateId,
           transition_id: transition.transition_id,   // is not the id of the transition, Links to the Australianeco_arche type and MVG cross walk.
           time_100: transition.time_100,
           time_25: transition.time_25,
@@ -436,8 +451,8 @@ export async function upsertTransitions(client: Pick<PoolClient, 'query'>, stm_n
         [
           // transition.id is serial in database, so don't insert it
           stm_name,
-          transition.start_state_id,  // start_state_id and end_state_id must exist in states table
-          transition.end_state_id,
+          startStateId,  // start_state_id and end_state_id must exist in states table
+          endStateId,
           transition.transition_id,   // is not the id of the transition, Links to the Australianeco_arche type and MVG cross walk.
           transition.time_100,
           transition.time_25,
@@ -447,11 +462,67 @@ export async function upsertTransitions(client: Pick<PoolClient, 'query'>, stm_n
         ]
       );
       transitionId = transitionResult.rows[0].id;
-  if (typeof transitionId === 'number') transitionIds.push(transitionId);
+      if (typeof transitionId === 'number') transitionIds.push(transitionId);
     }
 
     // 4.2 Upsert causal_chain & drivers
     for (const chain of transition.causal_chain || []) {
+      // 4.2.1 Upsert causal_chain
+      let chainId = chain.causal_chain_id // may be undefined for new causal_chain
+      // normalize chain_part to match ENUM in the database
+      const chainPartMap: Record<string, string> = {
+        "management intervention": "Management Intervention",
+        "favorable abiotic factor": "Favorable abiotic factor",
+        "favourable abiotic factor": "Favorable abiotic factor",
+        "biotic process": "Biotic process",
+        "hazard": "Hazard"
+      };
+      // Normalize/validate chain_part and make its type explicit
+      let chainPart: string | null | undefined;
+      if (!('chain_part' in chain)) {
+        // property not provided -> skip updating this column
+        chainPart = undefined;
+      } else if (chain.chain_part === null) {
+        // property provided explicitly as null -> clear the column
+        chainPart = null;
+      } else if (typeof chain.chain_part === 'string' && chain.chain_part.trim() !== '') {
+        // safe to call .toLowerCase() because of typeof check
+        const mapped = chainPartMap[chain.chain_part.toLowerCase()];
+        if (!mapped) {
+          throw new Error(`Invalid chain_part: ${chain.chain_part}`);
+        }
+        chainPart = mapped;
+      } else {
+        // provided but empty string -> treat as explicit clear
+        chainPart = null;
+      }
+
+      if (chainId) {
+        // --- UPDATE existing causal_chain with dynamic fields ---
+        await buildDynamicUpdate(
+          client,
+          "causal_chain",
+          "id",
+          chainId,
+          {
+            transition_id: transitionId,
+            name: chain.name,
+            chain_part: chainPart,
+          }
+        );
+      } else {
+        const chainResult = await client.query(
+          `INSERT INTO causal_chain (transition_id, name, chain_part)
+          VALUES ($1, $2, $3)
+          RETURNING id`,
+          [
+            transitionId,
+            chain.name,
+            chainPart,
+          ]
+        );
+        chainId = chainResult.rows[0]?.id;
+      }
 
       // 4.2.1 Upsert drivers
       const driverIds: number[] = [];
@@ -486,73 +557,30 @@ export async function upsertTransitions(client: Pick<PoolClient, 'query'>, stm_n
           if (typeof driverId === 'number') driverIds.push(driverId);
         }
 
-        // 4.2.2 Upsert causal_chain
-        let chainId = chain.causal_chain_id // may be undefined for new causal_chain
-        // normalize chain_part to match ENUM in the database
-        const chainPartMap: Record<string, string> = {
-          "management intervention": "Management Intervention",
-          "favorable abiotic factor": "Favorable abiotic factor",
-          "favourable abiotic factor": "Favorable abiotic factor",
-          "biotic process": "Biotic process",
-          "hazard": "Hazard"
-        };
-        let chainPart = chain.chain_part;
-        if (!("chain_part" in chain)) {
-          chainPart = undefined; // not clearing the field
-        } else if (chain.chain_part) {
-          const mapped = chainPartMap[chain.chain_part.toLowerCase()];
-          if (!mapped) {
-            throw new Error(`Invalid chain_part: ${chain.chain_part}`);
-          }
-          chainPart = mapped as typeof chainPart;
-        }
-
-        // Ensure transition_id is set in the causal_chain
-        let transition_id_aus = transition.transition_id;
-        if (transition_id_aus === undefined) {
-          const result = await client.query(
-            `SELECT transition_id FROM transitions
-            WHERE id = $1`,
-            [transitionId]
-          );
-
-          if (result.rows.length > 0) {
-            transition_id_aus = result.rows[0].transition_id;
-          } else {
-            throw new Error(`transition_id not found for transition with stm_name ${stm_name}, start_state_id ${transition.start_state_id}, end_state_id ${transition.end_state_id}`);
-          }
-        }
-
-
-        if (chainId) {
-          // --- UPDATE existing causal_chain with dynamic fields ---
-          await buildDynamicUpdate(
-            client,
-            "causal_chain",
-            "id",
-            chainId,
-            {
-              transition_id: transition_id_aus,
-              name: chain.name,
-              chain_part: chainPart,
-              driver_id: driverId
-            }
-          );
+        // 4.2.3 update chain_drivers junction table
+        // get existing ids for this chain_driver
+        let chain_driver_Id: number | null = null;
+        // Await the query result first, then inspect rows. Avoid chaining .then on the
+        // returned value because in tests the mock may return undefined for extra calls.
+        const chainDriverRes = await client.query(
+          `SELECT id FROM chain_driver WHERE causal_chain_id = $1 and driver_id = $2`,
+          [chainId, driverId]
+        );
+        if (chainDriverRes && Array.isArray(chainDriverRes.rows) && chainDriverRes.rows.length > 0) {
+          chain_driver_Id = chainDriverRes.rows[0].id;
         } else {
-          const chainResult = await client.query(
-            `INSERT INTO causal_chain (transition_id, name, chain_part, driver_id)
-            VALUES ($1, $2, $3, $4)
-            RETURNING id`,
-            [
-              transition_id_aus,
-              chain.name,
-              chainPart,
-              driverId
-            ]
-          );
-          chainId = chainResult.rows[0]?.id;
+          chain_driver_Id = null;
         }
 
+        // if not exist, insert new record
+        if (!chain_driver_Id) {
+          await client.query(
+            `INSERT INTO chain_driver (causal_chain_id, driver_id)
+            VALUES ($1, $2)
+            RETURNING id`,
+            [chainId, driverId]
+          );
+        }
       }
 
     }
@@ -588,12 +616,13 @@ export async function saveModel(modelData: BMRGData) {
       await upsertContributors(client, modelId, modelData.contributing_experts);
     }
     // 3. Upsert states & vast_states & state_attributes
+    let stateMap: Record<number, number> = {};
     if (modelData.states != undefined && modelData.states != null) {
-      await upsertStates(client, stm_name, modelData.states);
+      stateMap = await upsertStates(client, stm_name, modelData.states);
     }
     // 4. Upsert transitions & causal_chain & drivers
     if (modelData.transitions != undefined && modelData.transitions != null) {
-      await upsertTransitions(client, stm_name, modelData.transitions);
+      await upsertTransitions(client, stm_name, modelData.transitions, stateMap);
     }
 
     // // 5. Save method_alignment（it's "None" and it don't insert for now)
