@@ -471,9 +471,8 @@ models.post('/save', requireRole(["Admin", "Editor"]), async (req, res) => {
   try {
     const modelId = await saveModel(req.body);
     res.status(201).json({ success: true, modelId });
-  } catch (error) {
-    console.error('Error saving model:', error);
-    res.status(500).json({ success: false, error: 'Failed to save model' });
+  } catch (error : unknown) {
+    res.status(500).json({ message: 'Error saving model', error });
   }
 });
 
