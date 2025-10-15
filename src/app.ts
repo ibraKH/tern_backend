@@ -8,6 +8,7 @@ import { swaggerSpec } from "./swagger/swagger";
 import authRoutes from './routes/auth';
 import modelsRoutes from './routes/models';
 import { requireAuth } from "./middlewares/auth.middleware";
+import { errorHandler } from "./middlewares/error.middleware";
 
 const app = express();
 
@@ -21,6 +22,9 @@ app.use("/docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 app.use('/auth', authRoutes);     
 app.use('/models', requireAuth, modelsRoutes);
 app.get("/openapi.json", (_req, res) => res.json(swaggerSpec));
+
+// Error handling middleware
+app.use(errorHandler);
 
 // 404 handler
 app.use((req: Request, res: Response) => {
