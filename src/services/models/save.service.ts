@@ -212,7 +212,7 @@ export async function upsertContributors(client: Pick<PoolClient, 'query'>, mode
 
 // 3. Upsert states & vast_states & state_attributes
 export async function upsertStates(client: Pick<PoolClient, 'query'>, stm_name: string, states: StateData[]): Promise<Record<number, number>> {
-  // fake_state_id -> real_state_id mapping
+  // frontend_state_id -> real_state_id mapping
   const stateMap: Record<number, number> = {};
 
   for (const state of states) {
@@ -360,9 +360,9 @@ export async function upsertStates(client: Pick<PoolClient, 'query'>, stm_name: 
       }
     }
 
-    // Map fake_state_id to real state_id
-    if (state.fake_state_id != null) {
-      stateMap[state.fake_state_id] = stateId;
+    // Map frontend_state_id to real state_id
+    if (state.frontend_state_id != null) {
+      stateMap[state.frontend_state_id] = stateId;
     } else {
       stateMap[stateId] = stateId;
     }
@@ -499,7 +499,7 @@ export async function upsertTransitions(client: Pick<PoolClient, 'query'>, stm_n
 
       if (chainId) {
         // --- UPDATE existing causal_chain with dynamic fields ---
-        const chainUpdate = await buildDynamicUpdate(
+        await buildDynamicUpdate(
           client,
           "causal_chain",
           "id",

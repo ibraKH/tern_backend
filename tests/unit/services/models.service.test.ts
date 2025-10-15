@@ -187,7 +187,7 @@ describe('upsertStates', () => {
 
         const states: StateData[] = [
           makeState({
-            fake_state_id: 999, // for mapping test
+            frontend_state_id: 999, // for mapping test
             state_name: 'Rainforest',
             // Provide external format requiring mapping inside service
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -382,7 +382,7 @@ mockClient.query
   .mockResolvedValueOnce({ rows: [{ id: 202 }] }) // driver2 insert
   .mockResolvedValueOnce({ rows: [{ id: 302 }] }); // causal_chain for driver2
 
-    // fake_state_id -> real state_id mapping (no mapping needed in this test)
+    // frontend_state_id -> real state_id mapping (no mapping needed in this test)
     const stateMap: Record<number, number> = {};
 
     const result = await upsertTransitions(mockClient, 'STM1', transitions, stateMap);
@@ -423,7 +423,7 @@ mockClient.query
     expect(result).toEqual([101]);
   });
 
-  it('maps fake_state_id to real state_id when inserting transition', async () => {
+  it('maps frontend_state_id to real state_id when inserting transition', async () => {
     const transitions: TransitionData[] = [
       makeTransition({
         start_state_id: 9001, // fake
