@@ -35,7 +35,7 @@ export async function requireAuth(req: AuthenticatedRequest, res: Response, next
     };
 
     return next();
-  } catch {
-    res.status(401).json({ error: "Invalid or expired token" });
+  } catch (err : unknown) {
+    res.status(401).json({ error: "Cannot authenticate user", details: (err as Error).message || err });
   }
 }
