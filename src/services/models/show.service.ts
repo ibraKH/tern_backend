@@ -10,6 +10,8 @@ export async function getAllModels() {
     );
     // Only return the names as an array of strings
     return result.rows.map(r => r.stm_name);
+  } catch(error){
+    throw error;
   } finally {
     client.release();
   }
@@ -156,6 +158,8 @@ export async function getModelByName(name: string): Promise<BMRGData | null> {
     };
 
     return model;
+  } catch(error){
+    throw error;
   } finally {
     client.release();
   }
