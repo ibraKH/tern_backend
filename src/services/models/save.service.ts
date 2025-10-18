@@ -160,7 +160,10 @@ export async function upsertModelMetadata(client: Pick<PoolClient, 'query'>, mod
         };
       }
       // Re-throw any other error
-      throw err;
+      throw {
+        status: 500,
+        message: `Database error: ${(err as Error).message || String(err)}`,
+      }
     }
     // stmmodel id
     const modelId = modelResult.rows[0]?.id;
@@ -638,7 +641,10 @@ export async function saveModel(modelData: BMRGData) {
 
   } catch (error) {
     await client.query('ROLLBACK');
-    throw error;
+    throw {
+      status: error && typeof error === 'object' && 'status' in error ? (error as { status: number }).status : 500,
+      message: error && typeof error === 'object' && 'message' in error ? (error as { message: string }).message : (error as Error).message || String(error),
+    };
   } finally {
     client.release();
   }
