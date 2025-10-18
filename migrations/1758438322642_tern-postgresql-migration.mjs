@@ -571,6 +571,13 @@ export const up = (pgm) => {
   pgm.createIndex('vast_class_to_states', 'decision_tree_id', { name: 'idx_vcts_decision_tree_id', ifNotExists: true });
   pgm.createIndex('decision_tree_nodes', 'question_id', { name: 'idx_dtn_question', ifNotExists: true });
   pgm.createIndex('state_attributes', 'state_id', { name: 'idx_state_attributes_state', ifNotExists: true });
+
+  // Add one row to regions table
+  pgm.sql(`
+  INSERT INTO regions (id, region_boundary, ibra_sub_region_id, region_description)
+  VALUES (1, NULL, NULL, NULL)
+  ON CONFLICT (id) DO NOTHING;
+`);
 };
 
 /**
@@ -578,6 +585,8 @@ export const up = (pgm) => {
  * @returns {Promise<void> | void}
  */
 export const down = (pgm) => {
+  // Remove inserted region
+  pgm.sql(`DELETE FROM regions WHERE id = 1;`);
   // Drop indexes
   pgm.dropIndex('state_attributes', 'state_id', { name: 'idx_state_attributes_state', ifExists: true });
   pgm.dropIndex('decision_tree_nodes', 'question_id', { name: 'idx_dtn_question', ifExists: true });
@@ -626,6 +635,7 @@ export const down = (pgm) => {
   pgm.dropType('contribution_type', { ifExists: true });
   pgm.dropType('elicatation_type', { ifExists: true });
   pgm.dropType('chain_part_type', { ifExists: true });
+  pgm.dropType('auth_role', { ifExists: true });
   pgm.dropType('attribute_types', { ifExists: true });
   pgm.dropIndex('chain_driver', 'driver_id', { name: 'idx_chain_driver_driver', ifExists: true });
   pgm.dropIndex('chain_driver', 'causal_chain_id', { name: 'idx_chain_driver_chain', ifExists: true });
