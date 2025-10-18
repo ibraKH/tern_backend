@@ -275,7 +275,7 @@ export const up = (pgm) => {
   pgm.addConstraint('causal_chain', 'fk_causal_chain_transition', {
     foreignKeys: {
       columns: 'transition_id',
-      references: '"transitions"("transition_id")',
+      references: '"transitions"("id")',
       onUpdate: 'CASCADE',
       onDelete: 'SET NULL',
     },
