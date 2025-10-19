@@ -2,6 +2,7 @@ import type { Request, Response } from 'express';
 import express from 'express';
 import { saveModel } from '../services/models/save.service';
 import { getAllModels, getModelByName } from '../services/models/show.service';
+import { removeModelByName,removeState,removeTransitionByBusinessId } from '../services/models/remove.service';
 import { requireRole } from '../middlewares/role.middleware';
 import { getAllModelsSchema, getModelByNameSchema } from '../validation/models.validation';
 import { validate } from '../validation/validate';
@@ -475,6 +476,42 @@ models.post('/save', requireRole(["Admin", "Editor"]), async (req, res) => {
     res.status(201).json({ success: true, modelId });
   } catch (error : unknown) {
     res.status(500).json({ message: 'Error saving model', error });
+  }
+});
+
+// DELETE /models/:name:
+models.delete('/:name', requireRole(["Admin"]), async (req: Request, res: Response) => {
+  try {
+    const { name } = req.params as { name: string };
+    const r = await removeModelByName(name);
+    res.json({ success: true, ...r });
+  } catch (error: any) {
+    const status = error?.status ?? 500;
+    res.status(status).json({ message: 'Error removing model', error: String(error?.message ?? error) });
+  }
+});
+
+// DELETE /models/:name/states/:stateId:
+models.delete('/:name/states/:stateId', requireRole(["Admin", "Editor"]), async (req: Request, res: Response) => {
+  try {
+    const { name, stateId } = req.params as { name: string; stateId: string };
+    await removeState(name, Number(stateId));
+    res.json({ success: true });
+  } catch (error: any) {
+    const status = error?.status ?? 500;
+    res.status(status).json({ message: 'Error removing state', error: String(error?.message ?? error) });
+  }
+});
+
+// DELETE /models/:name/transitions/:transitionId:
+models.delete('/:name/transitions/:transitionId', requireRole(["Admin", "Editor"]), async (req: Request, res: Response) => {
+  try {
+    const { name, transitionId } = req.params as { name: string; transitionId: string };
+    await removeTransitionByBusinessId(name, Number(transitionId));
+    res.json({ success: true });
+  } catch (error: any) {
+    const status = error?.status ?? 500;
+    res.status(status).json({ message: 'Error removing transition', error: String(error?.message ?? error) });
   }
 });
 
