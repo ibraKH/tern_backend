@@ -27,8 +27,9 @@ app.get("/openapi.json", (_req, res) => res.json(swaggerSpec));
 app.use(errorHandler);
 
 // 404 handler
+const frontendUrl = process.env.FRONTEND_URL || 'https://stm-xm7jh.ondigitalocean.app';
 app.use((req: Request, res: Response) => {
-  res.status(404).json({ error: 'Page not found' });
+  res.redirect(`${frontendUrl}/notfound`);
 });
 
 export default app;
