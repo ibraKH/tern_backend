@@ -480,6 +480,62 @@ models.post('/save', requireRole(["Admin", "Editor"]), async (req, res) => {
 });
 
 // DELETE /models/:name:
+/**
+ * @openapi
+ * /models/{name}:
+ *   delete:
+ *     summary: Delete a whole model by name (cascading)
+ *     description: >
+ *       Deletes the model identified by `stm_name` and **all** related data (states, transitions,
+ *       causal chains, method_causal_chain, and model_contributions) in a single transaction.
+ *       Returns the deleted model's internal ID.
+ *     tags: [Models]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: name
+ *         required: true
+ *         description: The `stm_name` (model name) to delete.
+ *         schema:
+ *           type: string
+ *         example: "BMRG Rainforests"
+ *     responses:
+ *       200:
+ *         description: Model deleted successfully.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 deletedModelId:
+ *                   type: integer
+ *             example:
+ *               success: true
+ *               deletedModelId: 42
+ *       401:
+ *         description: Missing/invalid token.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ErrorResponse' }
+ *       403:
+ *         description: Forbidden (requires Admin role).
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ErrorResponse' }
+ *       404:
+ *         description: Model not found.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ErrorResponse' }
+ *       500:
+ *         description: Server error.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ErrorResponse' }
+ */
 models.delete('/:name', requireRole(["Admin"]), async (req: Request, res: Response) => {
   try {
     const { name } = req.params as { name: string };
@@ -491,6 +547,66 @@ models.delete('/:name', requireRole(["Admin"]), async (req: Request, res: Respon
 });
 
 // DELETE /models/:name/states/:stateId:
+/**
+ * @openapi
+ * /models/{name}/states/{stateId}:
+ *   delete:
+ *     summary: Delete one state by ID within a model
+ *     description: >
+ *       Deletes the specified state **and** any transitions that start or end at that state,
+ *       along with related causal_chain and method_causal_chain rows. Operates in a transaction.
+ *     tags: [Models]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: name
+ *         required: true
+ *         description: The `stm_name` that owns the state.
+ *         schema:
+ *           type: string
+ *         example: "BMRG Rainforests"
+ *       - in: path
+ *         name: stateId
+ *         required: true
+ *         description: The **DB** ID of the state to delete.
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *         example: 101
+ *     responses:
+ *       200:
+ *         description: State deleted successfully (and related data cleaned up).
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *             example:
+ *               success: true
+ *       401:
+ *         description: Missing/invalid token.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ErrorResponse' }
+ *       403:
+ *         description: Forbidden (requires Admin or Editor role).
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ErrorResponse' }
+ *       404:
+ *         description: State not found in the specified model.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ErrorResponse' }
+ *       500:
+ *         description: Server error.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ErrorResponse' }
+ */
 models.delete('/:name/states/:stateId', requireRole(["Admin", "Editor"]), async (req: Request, res: Response) => {
   try {
     const { name, stateId } = req.params as { name: string; stateId: string };
@@ -502,6 +618,66 @@ models.delete('/:name/states/:stateId', requireRole(["Admin", "Editor"]), async 
 });
 
 // DELETE /models/:name/transitions/:transitionId:
+/**
+ * @openapi
+ * /models/{name}/transitions/{transitionId}:
+ *   delete:
+ *     summary: Delete one transition by business ID within a model
+ *     description: >
+ *       Deletes the transition identified by `transition_id` (business ID) within the given model,
+ *       and cleans up related causal_chain and method_causal_chain rows. Operates in a transaction.
+ *     tags: [Models]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: name
+ *         required: true
+ *         description: The `stm_name` that owns the transition.
+ *         schema:
+ *           type: string
+ *         example: "BMRG Rainforests"
+ *       - in: path
+ *         name: transitionId
+ *         required: true
+ *         description: The **business** transition ID (not the DB PK) to delete.
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *         example: 305
+ *     responses:
+ *       200:
+ *         description: Transition deleted successfully (and related data cleaned up).
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *             example:
+ *               success: true
+ *       401:
+ *         description: Missing/invalid token.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ErrorResponse' }
+ *       403:
+ *         description: Forbidden (requires Admin or Editor role).
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ErrorResponse' }
+ *       404:
+ *         description: Transition not found in the specified model.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ErrorResponse' }
+ *       500:
+ *         description: Server error.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ErrorResponse' }
+ */
 models.delete('/:name/transitions/:transitionId', requireRole(["Admin", "Editor"]), async (req: Request, res: Response) => {
   try {
     const { name, transitionId } = req.params as { name: string; transitionId: string };
