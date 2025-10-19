@@ -1,6 +1,4 @@
 import pool from '../../config/database';
-import type { BMRGData, Contributor, StateData, TransitionData } from '../../types/models.types';
-import type { PoolClient } from 'pg';
 
 
 // remove all data related to a model identified by stm_name
