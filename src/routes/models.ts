@@ -335,7 +335,7 @@ models.get('/health', (req: Request, res: Response) => {
  *           application/json:
  *             schema: { $ref: '#/components/schemas/ErrorResponse' }
  */
-models.get('/all', requireRole(["Admin"]), validate({ body: getAllModelsSchema }), async (req: Request, res: Response) => {
+models.get('/all', requireRole(["Admin"]), validate({ params: getAllModelsSchema }), async (req: Request, res: Response) => {
   try {
     const modelNames = await getAllModels();
     res.json(modelNames);
