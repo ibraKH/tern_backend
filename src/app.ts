@@ -39,7 +39,7 @@ app.use(helmet({
 }));
 
 const allowedOrigins = [
-  process.env.FRONTEND_URL || 'https://stm-xm7jh.ondigitalocean.app',
+  process.env.FRONTEND_URL || 'https://stm-8nizc.ondigitalocean.app/',
   process.env.PRODUCTION_URL || 'https://hammerhead-app-t8l9y.ondigitalocean.app',
   'http://localhost:5173', // dev frontend
   'http://localhost:3000', // dev backend
@@ -73,7 +73,7 @@ app.get("/openapi.json", (_req, res) => res.json(swaggerSpec));
 app.use(errorHandler);
 
 // 404 handler
-const frontendUrl = process.env.FRONTEND_URL || 'https://stm-xm7jh.ondigitalocean.app';
+const frontendUrl = process.env.FRONTEND_URL || 'https://stm-8nizc.ondigitalocean.app/';
 app.use((req: Request, res: Response) => {
   res.redirect(`${frontendUrl}/notfound`);
 });
