@@ -39,7 +39,7 @@ app.use(helmet({
 }));
 
 const allowedOrigins = [
-  process.env.FRONTEND_URL || 'https://stm-8nizc.ondigitalocean.app/',
+  process.env.FRONTEND_URL || 'https://stm-8nizc.ondigitalocean.app',
   process.env.PRODUCTION_URL || 'https://hammerhead-app-t8l9y.ondigitalocean.app',
   'http://localhost:5173', // dev frontend
   'http://localhost:3000', // dev backend
@@ -47,11 +47,16 @@ const allowedOrigins = [
 
 app.use(cors({
   origin: (origin, callback) => {
+    console.log('CORS origin check:', origin);
+    console.log('Allowed origins:', allowedOrigins);
+    
     if (!origin) return callback(null, true);
     
     if (allowedOrigins.includes(origin)) {
+      console.log('Origin allowed:', origin);
       callback(null, true);
     } else {
+      console.log('Origin blocked:', origin);
       callback(new Error('Not allowed by CORS'));
     }
   },
@@ -73,7 +78,7 @@ app.get("/openapi.json", (_req, res) => res.json(swaggerSpec));
 app.use(errorHandler);
 
 // 404 handler
-const frontendUrl = process.env.FRONTEND_URL || 'https://stm-8nizc.ondigitalocean.app/';
+const frontendUrl = process.env.FRONTEND_URL || 'https://stm-8nizc.ondigitalocean.app';
 app.use((req: Request, res: Response) => {
   res.redirect(`${frontendUrl}/notfound`);
 });
