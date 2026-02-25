@@ -5,6 +5,7 @@ import { signToken } from "../utils/jwt";
 import { validate } from '../validation/validate';
 import { signupSchema, loginSchema } from '../validation/auth.schemas';
 import { AppError, AuthInvalidError, ConflictError } from "../errors";
+import { limitSignup, limitLogin } from "../middlewares/rateLimit";
 
 const auth = express.Router();
 
@@ -137,7 +138,7 @@ auth.get('/health', (req: Request, res: Response) => {
  *                   type: string
  *                   example: signup failed
  */
-auth.post("/signup", validate({ body: signupSchema }), async (req : Request, res : Response, next: NextFunction) => {
+auth.post("/signup", limitSignup, validate({ body: signupSchema }), async (req : Request, res : Response, next: NextFunction) => {
   const body = req.body;
   try {
     const existing = await getUserByEmail(body.email);
@@ -193,7 +194,7 @@ auth.post("/signup", validate({ body: signupSchema }), async (req : Request, res
  *                   type: string
  *                   example: login failed
  */
-auth.post("/login", validate({ body: loginSchema }), async (req : Request, res : Response, next: NextFunction) => {
+auth.post("/login", limitLogin, validate({ body: loginSchema }), async (req : Request, res : Response, next: NextFunction) => {
   const body = req.body;
   try {
     const user = await authenticate(body);

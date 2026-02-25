@@ -88,7 +88,7 @@ describe("middlewares/requireAuth", () => {
 
     expect(pool.query).not.toHaveBeenCalled();
     expect(res.status).toHaveBeenCalledWith(401);
-    expect(res.json).toHaveBeenCalledWith({ error: "Invalid or expired token" });
+    expect(res.json).toHaveBeenCalledWith({ error: "Cannot authenticate user", details: "bad token" });
     expect(next).not.toHaveBeenCalled();
   });
 
