@@ -15,6 +15,10 @@ Create a `.env` file in the project root:
 PORT=3000
 NODE_ENV=development
 
+# Frontend (required)
+# Used for CORS (Express + Socket.IO) and 404 redirects
+FRONTEND_URL=http://localhost:5173
+
 # JWT
 JWT_SECRET="Write here"
 JWT_EXPIRES_IN=1d
