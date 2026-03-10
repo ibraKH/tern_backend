@@ -5,6 +5,7 @@ jest.mock('../../src/config/database', () => ({
 
 import http from 'http';
 import { io as Client } from 'socket.io-client';
+import type { Server as SocketIOServer } from 'socket.io';
 
 import app from '../../src/app';
 import { initIo } from '../../src/socket';
@@ -14,6 +15,7 @@ import jwt from 'jsonwebtoken';
 
 describe('socket.io bootstrap', () => {
   let server: http.Server;
+  let ioServer: SocketIOServer;
   let port: number;
   let frontendUrl: string;
 
@@ -22,8 +24,8 @@ describe('socket.io bootstrap', () => {
     process.env.FRONTEND_URL = frontendUrl;
 
     server = http.createServer(app);
-    const io = initIo(server, frontendUrl);
-    io.use(socketAuthMiddleware);
+    ioServer = initIo(server, frontendUrl);
+    ioServer.use(socketAuthMiddleware);
 
     server.listen(0, () => {
       const address = server.address();
@@ -36,8 +38,9 @@ describe('socket.io bootstrap', () => {
     });
   });
 
-  afterAll((done) => {
-    server.close(done);
+  afterAll(async () => {
+    await new Promise<void>((resolve) => ioServer.close(() => resolve()));
+    await new Promise<void>((resolve) => server.close(() => resolve()));
   });
 
   function connect(url: string, opts: Parameters<typeof Client>[1]) {
