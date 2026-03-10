@@ -48,7 +48,7 @@ function getAuthedUser(socket: Socket): SocketAuthedUser {
   return user;
 }
 
-export function joinRoom(io: Server, socket: Socket, modelName: string): OnlineUser {
+export async function joinRoom(io: Server, socket: Socket, modelName: string): Promise<OnlineUser> {
   const user = getAuthedUser(socket);
   const room = getOrCreateRoom(modelName);
 
@@ -56,13 +56,13 @@ export function joinRoom(io: Server, socket: Socket, modelName: string): OnlineU
   const previous = room.users.get(key);
 
   if (previous && previous.socketId === socket.id) {
-    socket.join(modelName);
+    await Promise.resolve(socket.join(modelName));
     return previous;
   }
 
   if (previous && previous.socketId !== socket.id) {
     const oldSocket = io.sockets.sockets.get(previous.socketId);
-    oldSocket?.leave(modelName);
+    await Promise.resolve(oldSocket?.leave(modelName));
   }
 
   const onlineUser: OnlineUser = previous
@@ -75,12 +75,12 @@ export function joinRoom(io: Server, socket: Socket, modelName: string): OnlineU
       };
 
   room.users.set(key, onlineUser);
-  socket.join(modelName);
+  await Promise.resolve(socket.join(modelName));
 
   return onlineUser;
 }
 
-export function leaveRoom(_io: Server, socket: Socket, modelName: string): OnlineUser | undefined {
+export async function leaveRoom(_io: Server, socket: Socket, modelName: string): Promise<OnlineUser | undefined> {
   const room = rooms.get(modelName);
   if (!room) return undefined;
 
@@ -97,12 +97,12 @@ export function leaveRoom(_io: Server, socket: Socket, modelName: string): Onlin
 
   // Prevent stale/replaced sockets from evicting the active presence entry.
   if (existing.socketId !== socket.id) {
-    socket.leave(modelName);
+    await Promise.resolve(socket.leave(modelName));
     return undefined;
   }
 
   room.users.delete(key);
-  socket.leave(modelName);
+  await Promise.resolve(socket.leave(modelName));
 
   if (room.users.size === 0) {
     rooms.delete(modelName);

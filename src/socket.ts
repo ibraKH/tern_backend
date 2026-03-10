@@ -1,6 +1,8 @@
 import type { Server as HttpServer } from 'http';
 import { Server as SocketIOServer } from 'socket.io';
 
+import { PRODUCTION_URL } from './config/env';
+
 let ioInstance: SocketIOServer | undefined;
 
 export function initIo(server: HttpServer, frontendUrl: string): SocketIOServer {
@@ -15,7 +17,7 @@ export function initIo(server: HttpServer, frontendUrl: string): SocketIOServer 
 
   const allowedOrigins = [
     frontendUrl,
-    process.env.PRODUCTION_URL,
+    PRODUCTION_URL,
     'http://localhost:5173',
     'http://localhost:3000',
   ].filter((value): value is string => Boolean(value));

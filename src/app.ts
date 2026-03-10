@@ -10,6 +10,7 @@ import modelsRoutes from './routes/models';
 import { requireAuth } from "./middlewares/auth.middleware";
 import { errorHandler } from "./middlewares/error.middleware";
 import { requestId } from "./middlewares/requestId.middleware";
+import { FRONTEND_URL, CORS_ALLOWED_ORIGINS } from './config/env';
 
 const app = express();
 
@@ -38,19 +39,8 @@ app.use(helmet({
   referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
 }));
 
-const frontendUrl = process.env.FRONTEND_URL;
-if (!frontendUrl) {
-  throw new Error(
-    '[config] FRONTEND_URL is required (used for CORS and 404 redirects). Add it to your .env file, e.g. FRONTEND_URL=http://localhost:5173'
-  );
-}
-
-const allowedOrigins = [
-  frontendUrl,
-  process.env.PRODUCTION_URL || 'https://hammerhead-app-t8l9y.ondigitalocean.app',
-  'http://localhost:5173', // dev frontend
-  'http://localhost:3000', // dev backend
-];
+const frontendUrl = FRONTEND_URL;
+const allowedOrigins = Array.from(CORS_ALLOWED_ORIGINS);
 
 app.use(cors({
   origin: (origin, callback) => {    

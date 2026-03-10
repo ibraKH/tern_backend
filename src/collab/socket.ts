@@ -99,15 +99,19 @@ export function registerCollabHandlers(io: Server): void {
         return;
       }
 
-      const user = joinRoom(io, socket, modelName);
-      const room = getRoom(modelName);
-      const users = room ? Array.from(room.users.values()) : [];
+      void (async () => {
+        const user = await joinRoom(io, socket, modelName);
+        const room = getRoom(modelName);
+        const users = room ? Array.from(room.users.values()) : [];
 
-      // Sync presence to the joiner only.
-      socket.emit('presence:sync', { users });
+        // Sync presence to the joiner only.
+        socket.emit('presence:sync', { users });
 
-      // Notify others in the room about the new/updated user.
-      socket.to(modelName).emit('presence:join', { user });
+        // Notify others in the room about the new/updated user.
+        socket.to(modelName).emit('presence:join', { user });
+      })().catch(() => {
+        socket.emit('error:validation', { message: 'failed to join room' });
+      });
     });
 
     socket.on('cursor:move', (payload: unknown) => {
@@ -174,29 +178,33 @@ export function registerCollabHandlers(io: Server): void {
     });
 
     socket.on('disconnecting', () => {
-      const rooms = Array.from(socket.rooms).filter((r) => r !== socket.id);
+      void (async () => {
+        const rooms = Array.from(socket.rooms).filter((r) => r !== socket.id);
 
-      for (const modelName of rooms) {
-        const left = leaveRoom(io, socket, modelName);
-        if (left) {
-          socket.to(modelName).emit('presence:leave', { userId: left.userId });
-        }
-      }
-
-      // Cleanup pending throttled broadcasts for this socket/user.
-      const currentUser = getSocketUser(socket);
-      if (currentUser) {
         for (const modelName of rooms) {
-          for (const event of ['cursor:move', 'viewport:update'] as const) {
-            const key = makeThrottleKey(event, modelName, currentUser.uid);
-            const entry = pending.get(key);
-            if (entry) {
-              clearTimeout(entry.timer);
-              pending.delete(key);
+          const left = await leaveRoom(io, socket, modelName);
+          if (left) {
+            socket.to(modelName).emit('presence:leave', { userId: left.userId });
+          }
+        }
+
+        // Cleanup pending throttled broadcasts for this socket/user.
+        const currentUser = getSocketUser(socket);
+        if (currentUser) {
+          for (const modelName of rooms) {
+            for (const event of ['cursor:move', 'viewport:update'] as const) {
+              const key = makeThrottleKey(event, modelName, currentUser.uid);
+              const entry = pending.get(key);
+              if (entry) {
+                clearTimeout(entry.timer);
+                pending.delete(key);
+              }
             }
           }
         }
-      }
+      })().catch(() => {
+        // best-effort cleanup
+      });
     });
   });
 }
