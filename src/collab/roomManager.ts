@@ -95,6 +95,12 @@ export function leaveRoom(_io: Server, socket: Socket, modelName: string): Onlin
   const existing = room.users.get(key);
   if (!existing) return undefined;
 
+  // Prevent stale/replaced sockets from evicting the active presence entry.
+  if (existing.socketId !== socket.id) {
+    socket.leave(modelName);
+    return undefined;
+  }
+
   room.users.delete(key);
   socket.leave(modelName);
 

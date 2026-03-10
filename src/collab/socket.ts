@@ -66,8 +66,16 @@ export function registerCollabHandlers(io: Server): void {
 
         pending.delete(key);
 
+        // Re-validate that this socket is still the active room member for this user.
+        // This prevents stale sockets from broadcasting if the user reconnects within the throttle window.
+        const room = getRoom(modelName);
+        const active = room?.users.get(String(userId));
+        if (!active || active.socketId !== entry.socketId) return;
+
         const sender = io.sockets.sockets.get(entry.socketId);
         if (!sender) return;
+
+        if (!sender.rooms.has(modelName)) return;
 
         sender.to(modelName).emit(event, build(entry.lastPayload));
       }, 50);
