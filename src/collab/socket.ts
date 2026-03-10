@@ -1,6 +1,6 @@
 import type { Server } from 'socket.io';
 
-import { joinRoom, leaveRoom, getRoom, getUserColor } from './roomManager';
+import { joinRoom, leaveRoom, getRoom } from './roomManager';
 import type { SocketAuthedUser } from './auth.middleware';
 
 function isNonEmptyString(value: unknown): value is string {
@@ -33,7 +33,15 @@ export function registerCollabHandlers(io: Server): void {
   const pending = new Map<ThrottleKey, PendingBroadcast>();
 
   io.on('connection', (socket) => {
-    const user = getSocketUser(socket);
+    const isCurrentRoomSocket = (modelName: string, userId: number): { color: string } | undefined => {
+      if (!socket.rooms.has(modelName)) return undefined;
+      const room = getRoom(modelName);
+      if (!room) return undefined;
+      const entry = room.users.get(String(userId));
+      if (!entry) return undefined;
+      if (entry.socketId !== socket.id) return undefined;
+      return { color: entry.color };
+    };
 
     const scheduleBroadcast = (
       event: 'cursor:move' | 'viewport:update',
@@ -104,9 +112,11 @@ export function registerCollabHandlers(io: Server): void {
         return;
       }
 
+      const user = getSocketUser(socket);
       if (!user) return;
-      const color = getUserColor(user.uid, modelName);
-      if (!color) return;
+
+      const membership = isCurrentRoomSocket(modelName, user.uid);
+      if (!membership) return;
 
       scheduleBroadcast(
         'cursor:move',
@@ -116,7 +126,7 @@ export function registerCollabHandlers(io: Server): void {
         { x, y },
         (p) => {
           const last = p as { x: number; y: number };
-          return { userId: user.uid, color, x: last.x, y: last.y };
+          return { userId: user.uid, color: membership.color, x: last.x, y: last.y };
         }
       );
     });
@@ -134,7 +144,11 @@ export function registerCollabHandlers(io: Server): void {
         return;
       }
 
+      const user = getSocketUser(socket);
       if (!user) return;
+
+      const membership = isCurrentRoomSocket(modelName, user.uid);
+      if (!membership) return;
 
       scheduleBroadcast(
         'viewport:update',

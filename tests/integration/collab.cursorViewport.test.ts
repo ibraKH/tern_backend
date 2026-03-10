@@ -192,4 +192,53 @@ describe('collab cursor + viewport sync', () => {
     s1.close();
     s2.close();
   });
+
+  it('stale socket after reconnect cannot broadcast into room', async () => {
+    const modelName = `model-${Date.now()}-stale`;
+    const uid = 1401;
+
+    const oldSocket = await connectClient(uid, 'u1401@test.com');
+    const other = await connectClient(1402, 'u1402@test.com');
+
+    const oldSyncP = once<PresenceSync>(oldSocket, 'presence:sync');
+    oldSocket.emit('room:join', { modelName });
+    await oldSyncP;
+
+    const otherSyncP = once<PresenceSync>(other, 'presence:sync');
+    other.emit('room:join', { modelName });
+    await otherSyncP;
+
+    // Reconnect same user, which should replace the old socket entry.
+    const fresh = await connectClient(uid, 'u1401@test.com');
+    const freshSyncP = once<PresenceSync>(fresh, 'presence:sync');
+    fresh.emit('room:join', { modelName });
+    await freshSyncP;
+
+    let cursorCount = 0;
+    let viewportCount = 0;
+    other.on('cursor:move', () => cursorCount++);
+    other.on('viewport:update', () => viewportCount++);
+
+    // Old socket tries to broadcast — should be ignored.
+    oldSocket.emit('cursor:move', { modelName, x: 1, y: 2 });
+    oldSocket.emit('viewport:update', { modelName, x: 3, y: 4, zoom: 5 });
+    await delay(120);
+    expect(cursorCount).toBe(0);
+    expect(viewportCount).toBe(0);
+
+    // Fresh socket should broadcast successfully.
+    const cursorP = once<{ userId: number; x: number; y: number }>(other, 'cursor:move');
+    fresh.emit('cursor:move', { modelName, x: 10, y: 20 });
+    const cursor = await cursorP;
+    expect(cursor.userId).toBe(uid);
+
+    const viewportP = once<{ userId: number; x: number; y: number; zoom: number }>(other, 'viewport:update');
+    fresh.emit('viewport:update', { modelName, x: 1, y: 2, zoom: 3 });
+    const viewport = await viewportP;
+    expect(viewport).toEqual({ userId: uid, x: 1, y: 2, zoom: 3 });
+
+    oldSocket.close();
+    fresh.close();
+    other.close();
+  });
 });
