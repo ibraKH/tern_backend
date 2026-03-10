@@ -1,13 +1,11 @@
 import type { Socket } from 'socket.io';
-import type { DefaultEventsMap } from 'socket.io/dist/typed-events';
-import type { ExtendedError } from 'socket.io/dist/namespace';
 
 import { verifyToken, type JwtPayload } from '../utils/jwt';
 
 export type SocketAuthedUser = Pick<JwtPayload, 'uid' | 'email' | 'role'>;
 
 export type CollabSocketData = { user?: SocketAuthedUser };
-export type CollabSocket = Socket<DefaultEventsMap, DefaultEventsMap, DefaultEventsMap, CollabSocketData>;
+export type CollabSocket = Socket;
 
 function extractTokenFromAuthorizationHeader(header: string | string[] | undefined): string | undefined {
   if (!header) return undefined;
@@ -19,17 +17,19 @@ function extractTokenFromAuthorizationHeader(header: string | string[] | undefin
   return undefined;
 }
 
-function extractToken(socket: CollabSocket): string | undefined {
+function extractToken(socket: Socket): string | undefined {
   const authToken = (socket.handshake.auth as Record<string, unknown> | undefined)?.token;
   if (typeof authToken === 'string' && authToken.trim()) return authToken.trim();
 
   return extractTokenFromAuthorizationHeader(socket.handshake.headers.authorization);
 }
 
-export function socketAuthMiddleware(socket: CollabSocket, next: (err?: ExtendedError) => void): void {
+export function socketAuthMiddleware(socket: Socket, next: (err?: Error) => void): void {
+  const data = socket.data as CollabSocketData;
+
   // Defensive: avoid leaking a stale user from any previous assignment.
-  if (Object.prototype.hasOwnProperty.call(socket.data, 'user')) {
-    delete socket.data.user;
+  if (Object.prototype.hasOwnProperty.call(data, 'user')) {
+    delete data.user;
   }
 
   const token = extractToken(socket);
@@ -47,7 +47,7 @@ export function socketAuthMiddleware(socket: CollabSocket, next: (err?: Extended
       role: payload.role,
     };
 
-    socket.data.user = user;
+    data.user = user;
     next();
   } catch {
     next(new Error('Unauthorized'));
