@@ -1,5 +1,4 @@
 import jwt from 'jsonwebtoken';
-import type { ExtendedError } from 'socket.io/dist/namespace';
 
 import { socketAuthMiddleware, type CollabSocket } from '../../../src/collab/auth.middleware';
 import { signToken } from '../../../src/utils/jwt';
@@ -23,7 +22,7 @@ describe('collab/socketAuthMiddleware', () => {
       handshake: { auth: { token }, headers: {} } as unknown as CollabSocket['handshake'],
     });
 
-    const next = jest.fn<void, [ExtendedError?]>();
+    const next = jest.fn<void, [Error?]>();
 
     socketAuthMiddleware(socket, next);
 
@@ -33,7 +32,7 @@ describe('collab/socketAuthMiddleware', () => {
 
   it('missing token -> next(Error) called and no user attached', () => {
     const socket = makeSocket();
-    const next = jest.fn<void, [ExtendedError?]>();
+    const next = jest.fn<void, [Error?]>();
 
     socketAuthMiddleware(socket, next);
 
@@ -58,7 +57,7 @@ describe('collab/socketAuthMiddleware', () => {
       handshake: { auth: { token: expiredToken }, headers: {} } as unknown as CollabSocket['handshake'],
     });
 
-    const next = jest.fn<void, [ExtendedError?]>();
+    const next = jest.fn<void, [Error?]>();
     socketAuthMiddleware(socket, next);
 
     expect((next.mock.calls[0][0] as Error).message).toBe('Unauthorized');
@@ -74,7 +73,7 @@ describe('collab/socketAuthMiddleware', () => {
       handshake: { auth: { token: tampered }, headers: {} } as unknown as CollabSocket['handshake'],
     });
 
-    const next = jest.fn<void, [ExtendedError?]>();
+    const next = jest.fn<void, [Error?]>();
     socketAuthMiddleware(socket, next);
 
     expect((next.mock.calls[0][0] as Error).message).toBe('Unauthorized');

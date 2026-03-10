@@ -38,8 +38,15 @@ app.use(helmet({
   referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
 }));
 
+const frontendUrl = process.env.FRONTEND_URL;
+if (!frontendUrl) {
+  throw new Error(
+    '[config] FRONTEND_URL is required (used for CORS and 404 redirects). Add it to your .env file, e.g. FRONTEND_URL=http://localhost:5173'
+  );
+}
+
 const allowedOrigins = [
-  process.env.FRONTEND_URL || 'https://stm-8nizc.ondigitalocean.app',
+  frontendUrl,
   process.env.PRODUCTION_URL || 'https://hammerhead-app-t8l9y.ondigitalocean.app',
   'http://localhost:5173', // dev frontend
   'http://localhost:3000', // dev backend
@@ -73,7 +80,6 @@ app.get("/openapi.json", (_req, res) => res.json(swaggerSpec));
 app.use(errorHandler);
 
 // 404 handler
-const frontendUrl = process.env.FRONTEND_URL || 'https://stm-8nizc.ondigitalocean.app';
 app.use((req: Request, res: Response) => {
   res.redirect(`${frontendUrl}/notfound`);
 });
