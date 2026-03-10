@@ -3,7 +3,7 @@ import { io as Client, type Socket as ClientSocket } from 'socket.io-client';
 
 import { initIo } from '../../src/socket';
 import { socketAuthMiddleware } from '../../src/collab/auth.middleware';
-import { registerCollabHandlers } from '../../src/collab/socket';
+import { registerCollabHandlers, COLLAB_THROTTLE_MS } from '../../src/collab/socket';
 import { signToken } from '../../src/utils/jwt';
 
 type PresenceSync = { users: Array<{ userId: number; email: string; color: string; socketId: string }> };
@@ -49,6 +49,8 @@ describe('collab cursor + viewport sync', () => {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
+  const WAIT_MS = COLLAB_THROTTLE_MS + 80;
+
   async function connectClient(uid: number, email: string): Promise<ClientSocket> {
     const url = `http://localhost:${port}`;
     const token = signToken({ uid, email, role: 'Editor' });
@@ -93,14 +95,14 @@ describe('collab cursor + viewport sync', () => {
     const recv = await recvP;
     expect(recv).toEqual({ userId: 1001, color: color1 as string, x: 10, y: 20 });
 
-    await delay(80);
+    await delay(WAIT_MS);
     expect(senderGotIt).toBe(false);
 
     s1.close();
     s2.close();
   });
 
-  it('throttle: 10 rapid cursor:move in <50ms results in 1 broadcast (last payload wins)', async () => {
+  it(`throttle: 10 rapid cursor:move in <${COLLAB_THROTTLE_MS}ms results in 1 broadcast (last payload wins)`, async () => {
     const modelName = `model-${Date.now()}-throttle`;
     const s1 = await connectClient(1101, 'u1101@test.com');
     const s2 = await connectClient(1102, 'u1102@test.com');
@@ -120,7 +122,7 @@ describe('collab cursor + viewport sync', () => {
       s1.emit('cursor:move', { modelName, x: i, y: i + 1 });
     }
 
-    await delay(120);
+    await delay(WAIT_MS);
 
     expect(received.length).toBe(1);
     expect(received[0]).toEqual({ x: 9, y: 10 });
@@ -151,7 +153,7 @@ describe('collab cursor + viewport sync', () => {
     const recv = await recvP;
     expect(recv).toEqual({ userId: 1201, x: 1, y: 2, zoom: 3 });
 
-    await delay(80);
+    await delay(WAIT_MS);
     expect(senderGotIt).toBe(false);
 
     s1.close();
@@ -183,7 +185,7 @@ describe('collab cursor + viewport sync', () => {
     s1.emit('viewport:update', { modelName, x: 1, y: 2 });
     s1.emit('cursor:move', { modelName, x: Infinity, y: 1 });
 
-    await delay(120);
+    await delay(WAIT_MS);
 
     expect(errors.length).toBeGreaterThanOrEqual(2);
     expect(cursorBroadcast).toBe(0);
@@ -222,7 +224,7 @@ describe('collab cursor + viewport sync', () => {
     // Old socket tries to broadcast — should be ignored.
     oldSocket.emit('cursor:move', { modelName, x: 1, y: 2 });
     oldSocket.emit('viewport:update', { modelName, x: 3, y: 4, zoom: 5 });
-    await delay(120);
+    await delay(WAIT_MS);
     expect(cursorCount).toBe(0);
     expect(viewportCount).toBe(0);
 

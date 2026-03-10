@@ -1,7 +1,9 @@
-import type { Server } from 'socket.io';
+import type { Server, Socket } from 'socket.io';
 
 import { joinRoom, leaveRoom, getRoom } from './roomManager';
 import type { SocketAuthedUser } from './auth.middleware';
+
+export const COLLAB_THROTTLE_MS = 50 as const;
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0;
@@ -25,8 +27,8 @@ function makeThrottleKey(event: 'cursor:move' | 'viewport:update', modelName: st
   return `${event}::${modelName}::${userId}`;
 }
 
-function getSocketUser(socket: any): SocketAuthedUser | undefined {
-  return (socket?.data as { user?: SocketAuthedUser } | undefined)?.user;
+function getSocketUser(socket: Socket): SocketAuthedUser | undefined {
+  return (socket.data as { user?: SocketAuthedUser } | undefined)?.user;
 }
 
 export function registerCollabHandlers(io: Server): void {
@@ -78,7 +80,7 @@ export function registerCollabHandlers(io: Server): void {
         if (!sender.rooms.has(modelName)) return;
 
         sender.to(modelName).emit(event, build(entry.lastPayload));
-      }, 50);
+      }, COLLAB_THROTTLE_MS);
 
       pending.set(key, {
         timer,

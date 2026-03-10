@@ -4,6 +4,15 @@ import { Server as SocketIOServer } from 'socket.io';
 let ioInstance: SocketIOServer | undefined;
 
 export function initIo(server: HttpServer, frontendUrl: string): SocketIOServer {
+  if (ioInstance) {
+    const existingServer = (ioInstance as any).httpServer as HttpServer | undefined;
+    if (existingServer === server) return ioInstance;
+
+    // Avoid leaking listeners/sockets on accidental double-initialization.
+    ioInstance.close();
+    ioInstance = undefined;
+  }
+
   const allowedOrigins = [
     frontendUrl,
     process.env.PRODUCTION_URL,
