@@ -3,6 +3,7 @@ import http from 'http';
 import app from './app';
 import { initIo } from './socket';
 import { socketAuthMiddleware } from './collab/auth.middleware';
+import { registerCollabHandlers } from './collab/socket';
 
 const PORT = process.env.PORT || 3000;
 const frontendUrl = process.env.FRONTEND_URL;
@@ -16,6 +17,7 @@ if (!frontendUrl) {
 const server = http.createServer(app);
 const io = initIo(server, frontendUrl);
 io.use(socketAuthMiddleware);
+registerCollabHandlers(io);
 
 server.listen(PORT, () => {
   console.log(`[server] running on ${PORT}`);
