@@ -70,6 +70,7 @@ describe('collab room lifecycle', () => {
 
   it('first user joins: receives presence:sync (1 user), no presence:join', async () => {
     const modelName = `model-${Date.now()}-1`;
+    const modelId = Date.now();
     const token1 = signToken({ uid: 101, email: 'u101@test.com', role: 'Editor' });
 
     const s1 = await connectClient(token1);
@@ -78,7 +79,7 @@ describe('collab room lifecycle', () => {
     let joinBroadcast = 0;
     s1.on('presence:join', () => joinBroadcast++);
 
-    s1.emit('room:join', { modelName });
+    s1.emit('room:join', { modelId, modelName });
     const sync = await joinPromise;
 
     expect(sync.users).toHaveLength(1);
@@ -92,6 +93,7 @@ describe('collab room lifecycle', () => {
 
   it('second user joins: first gets presence:join; new gets presence:sync (2 users)', async () => {
     const modelName = `model-${Date.now()}-2`;
+    const modelId = Date.now();
     const token1 = signToken({ uid: 201, email: 'u201@test.com', role: 'Editor' });
     const token2 = signToken({ uid: 202, email: 'u202@test.com', role: 'Editor' });
 
@@ -99,13 +101,13 @@ describe('collab room lifecycle', () => {
     const s2 = await connectClient(token2);
 
     const s1Sync1 = once<PresenceSync>(s1, 'presence:sync');
-    s1.emit('room:join', { modelName });
+    s1.emit('room:join', { modelId, modelName });
     await s1Sync1;
 
     const joinEvent = once<{ user: { userId: number } }>(s1, 'presence:join');
     const s2Sync = once<PresenceSync>(s2, 'presence:sync');
 
-    s2.emit('room:join', { modelName });
+    s2.emit('room:join', { modelId, modelName });
 
     const [joinPayload, sync2] = await Promise.all([joinEvent, s2Sync]);
 
@@ -118,6 +120,7 @@ describe('collab room lifecycle', () => {
 
   it('disconnect broadcasts presence:leave to remaining users', async () => {
     const modelName = `model-${Date.now()}-3`;
+    const modelId = Date.now();
     const token1 = signToken({ uid: 301, email: 'u301@test.com', role: 'Editor' });
     const token2 = signToken({ uid: 302, email: 'u302@test.com', role: 'Editor' });
 
@@ -125,11 +128,11 @@ describe('collab room lifecycle', () => {
     const s2 = await connectClient(token2);
 
     const s1Sync = once<PresenceSync>(s1, 'presence:sync');
-    s1.emit('room:join', { modelName });
+    s1.emit('room:join', { modelId, modelName });
     await s1Sync;
 
     const s2Sync = once<PresenceSync>(s2, 'presence:sync');
-    s2.emit('room:join', { modelName });
+    s2.emit('room:join', { modelId, modelName });
     await s2Sync;
 
     const leaveEvent = once<{ userId: number }>(s1, 'presence:leave');
@@ -143,22 +146,52 @@ describe('collab room lifecycle', () => {
 
   it('reconnect replaces socket entry; no duplicates in presence:sync', async () => {
     const modelName = `model-${Date.now()}-4`;
+    const modelId = Date.now();
     const token = signToken({ uid: 401, email: 'u401@test.com', role: 'Editor' });
 
     const s1 = await connectClient(token);
     const sync1P = once<PresenceSync>(s1, 'presence:sync');
-    s1.emit('room:join', { modelName });
+    s1.emit('room:join', { modelId, modelName });
     const sync1 = await sync1P;
     expect(sync1.users).toHaveLength(1);
 
     const s2 = await connectClient(token);
     const sync2P = once<PresenceSync>(s2, 'presence:sync');
-    s2.emit('room:join', { modelName });
+    s2.emit('room:join', { modelId, modelName });
     const sync2 = await sync2P;
 
     expect(sync2.users).toHaveLength(1);
     expect(sync2.users[0].userId).toBe(401);
     expect((sync2.users[0] as any).socketId).toBeUndefined();
+
+    s1.close();
+    s2.close();
+  });
+
+  it('same modelName but different modelId does not share rooms', async () => {
+    const modelName = `same-name-${Date.now()}`;
+    const token1 = signToken({ uid: 601, email: 'u601@test.com', role: 'Editor' });
+    const token2 = signToken({ uid: 602, email: 'u602@test.com', role: 'Editor' });
+
+    const s1 = await connectClient(token1);
+    const s2 = await connectClient(token2);
+
+    const s1Sync = once<PresenceSync>(s1, 'presence:sync');
+    s1.emit('room:join', { modelId: 6001, modelName });
+    await s1Sync;
+
+    let s1JoinBroadcast = 0;
+    s1.on('presence:join', () => s1JoinBroadcast++);
+
+    const s2Sync = once<PresenceSync>(s2, 'presence:sync');
+    s2.emit('room:join', { modelId: 6002, modelName });
+    const sync2 = await s2Sync;
+
+    expect(sync2.users).toHaveLength(1);
+    expect(sync2.users[0].userId).toBe(602);
+
+    await delay(100);
+    expect(s1JoinBroadcast).toBe(0);
 
     s1.close();
     s2.close();
@@ -175,7 +208,7 @@ describe('collab room lifecycle', () => {
     s.emit('room:join', { modelName: '' });
     const err = await errorP;
 
-    expect(err.message).toMatch(/modelName/i);
+    expect(err.message).toMatch(/modelId|modelName/i);
 
     await delay(100);
     expect(syncReceived).toBe(false);

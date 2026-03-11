@@ -5,7 +5,8 @@ export type OnlineUser = {
 };
 
 export type RoomState = {
-  modelName: string;
+  roomKey: string;
+  modelName?: string;
   users: Map<string, OnlineUser>; // key = userId (stringified)
   socketIdByUserId: Map<string, string>; // internal only; never sent to clients
 };
