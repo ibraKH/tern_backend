@@ -41,7 +41,7 @@ export function registerCollabHandlers(io: Server): void {
       if (!room) return undefined;
       const entry = room.users.get(String(userId));
       if (!entry) return undefined;
-      if (entry.socketId !== socket.id) return undefined;
+      if (room.socketIdByUserId.get(String(userId)) !== socket.id) return undefined;
       return { color: entry.color };
     };
 
@@ -71,8 +71,8 @@ export function registerCollabHandlers(io: Server): void {
         // Re-validate that this socket is still the active room member for this user.
         // This prevents stale sockets from broadcasting if the user reconnects within the throttle window.
         const room = getRoom(modelName);
-        const active = room?.users.get(String(userId));
-        if (!active || active.socketId !== entry.socketId) return;
+        const activeSocketId = room?.socketIdByUserId.get(String(userId));
+        if (!activeSocketId || activeSocketId !== entry.socketId) return;
 
         const sender = io.sockets.sockets.get(entry.socketId);
         if (!sender) return;

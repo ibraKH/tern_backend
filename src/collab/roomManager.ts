@@ -20,7 +20,7 @@ function getOrCreateRoom(modelName: string): RoomState {
   const existing = rooms.get(modelName);
   if (existing) return existing;
 
-  const room: RoomState = { modelName, users: new Map() };
+  const room: RoomState = { modelName, users: new Map(), socketIdByUserId: new Map() };
   rooms.set(modelName, room);
   return room;
 }
@@ -54,27 +54,28 @@ export async function joinRoom(io: Server, socket: Socket, modelName: string): P
 
   const key = userKey(user.uid);
   const previous = room.users.get(key);
+  const previousSocketId = room.socketIdByUserId.get(key);
 
-  if (previous && previous.socketId === socket.id) {
+  if (previous && previousSocketId === socket.id) {
     await Promise.resolve(socket.join(modelName));
     return previous;
   }
 
-  if (previous && previous.socketId !== socket.id) {
-    const oldSocket = io.sockets.sockets.get(previous.socketId);
+  if (previous && previousSocketId && previousSocketId !== socket.id) {
+    const oldSocket = io.sockets.sockets.get(previousSocketId);
     await Promise.resolve(oldSocket?.leave(modelName));
   }
 
   const onlineUser: OnlineUser = previous
-    ? { ...previous, email: user.email, socketId: socket.id }
+    ? { ...previous, email: user.email }
     : {
         userId: user.uid,
         email: user.email,
         color: pickNextColor(room),
-        socketId: socket.id,
       };
 
   room.users.set(key, onlineUser);
+  room.socketIdByUserId.set(key, socket.id);
   await Promise.resolve(socket.join(modelName));
 
   return onlineUser;
@@ -95,13 +96,16 @@ export async function leaveRoom(_io: Server, socket: Socket, modelName: string):
   const existing = room.users.get(key);
   if (!existing) return undefined;
 
+  const activeSocketId = room.socketIdByUserId.get(key);
+
   // Prevent stale/replaced sockets from evicting the active presence entry.
-  if (existing.socketId !== socket.id) {
+  if (activeSocketId !== socket.id) {
     await Promise.resolve(socket.leave(modelName));
     return undefined;
   }
 
   room.users.delete(key);
+  room.socketIdByUserId.delete(key);
   await Promise.resolve(socket.leave(modelName));
 
   if (room.users.size === 0) {

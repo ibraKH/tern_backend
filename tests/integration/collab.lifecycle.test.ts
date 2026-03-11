@@ -6,7 +6,7 @@ import { socketAuthMiddleware } from '../../src/collab/auth.middleware';
 import { registerCollabHandlers } from '../../src/collab/socket';
 import { signToken } from '../../src/utils/jwt';
 
-type PresenceSync = { users: Array<{ userId: number; email: string; color: string; socketId: string }> };
+type PresenceSync = { users: Array<{ userId: number; email: string; color: string }> };
 
 describe('collab room lifecycle', () => {
   let server: http.Server;
@@ -158,7 +158,7 @@ describe('collab room lifecycle', () => {
 
     expect(sync2.users).toHaveLength(1);
     expect(sync2.users[0].userId).toBe(401);
-    expect(sync2.users[0].socketId).toBe(s2.id);
+    expect((sync2.users[0] as any).socketId).toBeUndefined();
 
     s1.close();
     s2.close();

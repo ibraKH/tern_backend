@@ -4,22 +4,22 @@ import { Server as SocketIOServer } from 'socket.io';
 import { PRODUCTION_URL } from './config/env';
 
 let ioInstance: SocketIOServer | undefined;
+let boundServer: HttpServer | undefined;
 
 export function initIo(server: HttpServer, frontendUrl: string): SocketIOServer {
   if (ioInstance) {
-    const existingServer = (ioInstance as any).httpServer as HttpServer | undefined;
-    if (existingServer === server) return ioInstance;
+    if (boundServer === server) return ioInstance;
 
     // Avoid leaking listeners/sockets on accidental double-initialization.
     ioInstance.close();
     ioInstance = undefined;
+    boundServer = undefined;
   }
 
   const allowedOrigins = [
     frontendUrl,
     PRODUCTION_URL,
-    'http://localhost:5173',
-    'http://localhost:3000',
+    ...(process.env.NODE_ENV !== 'production' ? ['http://localhost:5173', 'http://localhost:3000'] : []),
   ].filter((value): value is string => Boolean(value));
 
   ioInstance = new SocketIOServer(server, {
@@ -37,6 +37,8 @@ export function initIo(server: HttpServer, frontendUrl: string): SocketIOServer 
       credentials: false,
     },
   });
+
+  boundServer = server;
 
   return ioInstance;
 }

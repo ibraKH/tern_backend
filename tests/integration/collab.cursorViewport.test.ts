@@ -6,7 +6,7 @@ import { socketAuthMiddleware } from '../../src/collab/auth.middleware';
 import { registerCollabHandlers, COLLAB_THROTTLE_MS } from '../../src/collab/socket';
 import { signToken } from '../../src/utils/jwt';
 
-type PresenceSync = { users: Array<{ userId: number; email: string; color: string; socketId: string }> };
+type PresenceSync = { users: Array<{ userId: number; email: string; color: string }> };
 
 describe('collab cursor + viewport sync', () => {
   let server: http.Server;

@@ -16,6 +16,5 @@ export const PRODUCTION_URL = process.env.PRODUCTION_URL || DEFAULT_PRODUCTION_U
 export const CORS_ALLOWED_ORIGINS = [
   FRONTEND_URL,
   PRODUCTION_URL,
-  'http://localhost:5173',
-  'http://localhost:3000',
+  ...(process.env.NODE_ENV !== 'production' ? ['http://localhost:5173', 'http://localhost:3000'] : []),
 ] as const;
