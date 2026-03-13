@@ -32,6 +32,7 @@
     "jsonwebtoken": "^9.0.2",
     "pg": "^8.16.3",
     "rate-limiter-flexible": "^8.1.0",
+    "socket.io": "^4.8.3",
     "swagger-jsdoc": "^6.2.8",
     "swagger-ui-express": "^5.0.1",
     "zod": "^4.1.12"
@@ -58,6 +59,7 @@
     "jiti": "^2.6.1",
     "node-pg-migrate": "^8.0.3",
     "nodemon": "^3.1.10",
+    "socket.io-client": "^4.8.3",
     "supertest": "^7.1.4",
     "ts-jest": "^29.4.4",
     "ts-node": "^10.9.2",
