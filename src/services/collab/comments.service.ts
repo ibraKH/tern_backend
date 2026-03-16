@@ -3,11 +3,13 @@ import { AppError, ConflictError } from "../../errors";
 
 export type EntityType = "node" | "edge" | null;
 
+/** Represents a user mentioned in a comment. */
 export interface CommentMention {
   id: number;
   email: string;
 }
 
+/** Full comment record with author and mentions. */
 export interface CommentRecord {
   id: number;
   modelId: number;
@@ -24,6 +26,7 @@ export interface CommentRecord {
   mentions: CommentMention[];
 }
 
+/** Parameters for creating a new comment. */
 export interface CreateCommentParams {
   modelName: string;
   entityType: EntityType;
@@ -34,6 +37,7 @@ export interface CreateCommentParams {
 
 const EMAIL_MENTION_REGEX = /\@([\w.+-]+@[\w-]+\.[\w.]+)/g;
 
+/** Extracts unique email addresses mentioned in the comment body using regex. */
 function extractMentionedEmails(body: string): string[] {
   const emails = new Set<string>();
   let match: RegExpExecArray | null;
@@ -43,6 +47,7 @@ function extractMentionedEmails(body: string): string[] {
   return Array.from(emails);
 }
 
+/** Creates a new comment, parses mentions, and inserts into database. */
 export async function createComment(params: CreateCommentParams): Promise<CommentRecord> {
   const { modelName, entityType, entityId = null, authorId, body } = params;
 
@@ -149,7 +154,7 @@ export async function createComment(params: CreateCommentParams): Promise<Commen
   }
 }
 
-
+/** Retrieves all non-deleted comments for a model, ordered by creation time. */
 export async function getComments(modelName: string): Promise<CommentRecord[]> {
   if (!modelName || modelName.trim().length === 0) return [];
 
@@ -216,7 +221,7 @@ export async function getComments(modelName: string): Promise<CommentRecord[]> {
   }));
 }
 
-
+/** Resolves a comment if authorized (author or Admin). */
 export async function resolveComment(
   commentId: number,
   requesterId: number,
@@ -267,6 +272,7 @@ export async function resolveComment(
   }
 }
 
+/** Soft deletes a comment if authorized (author or Admin). */
 export async function deleteComment(
   commentId: number,
   requesterId: number,
