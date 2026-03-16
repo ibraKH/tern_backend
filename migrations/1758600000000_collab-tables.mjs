@@ -87,6 +87,8 @@ export const up = (pgm) => {
     parent_id: { type: 'integer' },
     body: { type: 'text', notNull: true },
     resolved: { type: 'boolean', notNull: true, default: false },
+    resolved_at: { type: 'timestamptz' },
+    deleted_at: { type: 'timestamptz' },
     created_at: { type: 'timestamptz', notNull: true, default: pgm.func('now()') },
     updated_at: { type: 'timestamptz', notNull: true, default: pgm.func('now()') },
   }, { ifNotExists: true });

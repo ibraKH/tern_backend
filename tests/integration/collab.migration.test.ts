@@ -167,6 +167,8 @@ describe('collab_comments columns', () => {
     ['parent_id',   'integer',                  'YES'],
     ['body',        'text',                     'NO'],
     ['resolved',    'boolean',                  'NO'],
+    ['resolved_at', 'timestamp with time zone', 'YES'],
+    ['deleted_at',  'timestamp with time zone', 'YES'],
     ['created_at',  'timestamp with time zone', 'NO'],
     ['updated_at',  'timestamp with time zone', 'NO'],
   ];
