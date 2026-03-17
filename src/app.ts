@@ -7,11 +7,9 @@ import { swaggerSpec } from "./swagger/swagger";
 
 import authRoutes from './routes/auth';
 import modelsRoutes from './routes/models';
-import collabRoutes from './routes/collab';
 import { requireAuth } from "./middlewares/auth.middleware";
 import { errorHandler } from "./middlewares/error.middleware";
 import { requestId } from "./middlewares/requestId.middleware";
-import { FRONTEND_URL, CORS_ALLOWED_ORIGINS } from './config/env';
 
 const app = express();
 
@@ -40,8 +38,12 @@ app.use(helmet({
   referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
 }));
 
-const frontendUrl = FRONTEND_URL;
-const allowedOrigins = Array.from(CORS_ALLOWED_ORIGINS);
+const allowedOrigins = [
+  process.env.FRONTEND_URL || 'https://stm-8nizc.ondigitalocean.app',
+  process.env.PRODUCTION_URL || 'https://hammerhead-app-t8l9y.ondigitalocean.app',
+  'http://localhost:5173', // dev frontend
+  'http://localhost:3000', // dev backend
+];
 
 app.use(cors({
   origin: (origin, callback) => {    
@@ -63,15 +65,15 @@ app.use(express.json());
 app.use("/docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 // Routes
-app.use('/auth', authRoutes);
+app.use('/auth', authRoutes);     
 app.use('/models', requireAuth, modelsRoutes);
-app.use('/collab', collabRoutes);
 app.get("/openapi.json", (_req, res) => res.json(swaggerSpec));
 
 // Error handling middleware
 app.use(errorHandler);
 
 // 404 handler
+const frontendUrl = process.env.FRONTEND_URL || 'https://stm-8nizc.ondigitalocean.app';
 app.use((req: Request, res: Response) => {
   res.redirect(`${frontendUrl}/notfound`);
 });
