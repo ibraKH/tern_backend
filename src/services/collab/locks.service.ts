@@ -1,36 +1,52 @@
 import pool from '../../config/database';
 
+// Supported lockable entity types
 type EntityType = 'node' | 'edge';
 
+// Arguments required for lock-related operations
 type LockArgs = {
-  entityType: EntityType;
-  entityId: string;
-  modelName: string;
-  userId: number;
+  entityType: EntityType; // Type of entity being locked
+  entityId: string;       // Unique ID of the entity
+  modelName: string;      // Name of the model the entity belongs to
+  userId: number;         // ID of the user performing the operation
 };
 
+// Result returned by acquireLock()
+// - success: true  => lock acquired successfully
+// - success: false => lock is held by another user, optionally with their email
 type AcquireLockResult =
   | { success: true }
   | { success: false; heldBy: string | null };
 
+// Shape of lock records returned when releasing all locks for a socket/user
 type ReleasedLock = {
   entityType: EntityType;
   entityId: string;
   modelName: string;
 };
 
+/**
+ * Validates that the given entity type is one of the supported values.
+ * Uses a TypeScript assertion so the type is narrowed to EntityType.
+ */
 function validateEntityType(entityType: string): asserts entityType is EntityType {
   if (!['node', 'edge'].includes(entityType)) {
     throw new Error("entityType must be one of ['node', 'edge']");
   }
 }
 
+/**
+ * Validates that a string field is not empty or whitespace-only.
+ */
 function validateNonEmptyString(value: string, fieldName: string): void {
   if (typeof value !== 'string' || value.trim() === '') {
     throw new Error(`${fieldName} must be a non-empty string`);
   }
 }
 
+/**
+ * Validates the common lock arguments except for userId.
+ */
 function validateLockArgs({
   entityType,
   entityId,
@@ -41,6 +57,20 @@ function validateLockArgs({
   validateNonEmptyString(modelName, 'modelName');
 }
 
+/**
+ * Attempts to acquire a lock for a specific entity.
+ *
+ * Behavior:
+ * 1. If no lock exists, insert a new lock that expires in 30 seconds.
+ * 2. If a lock already exists:
+ *    - refresh it if it is already owned by the same user
+ *    - replace it if the existing lock has expired
+ *    - otherwise keep the existing lock unchanged
+ *
+ * Returns:
+ * - { success: true } if the current user owns the lock after the operation
+ * - { success: false, heldBy } if another user still holds the lock
+ */
 export async function acquireLock({
   entityType,
   entityId,
@@ -75,10 +105,12 @@ export async function acquireLock({
 
     const row = upsertResult.rows[0];
 
+    // If the resulting lock owner is the current user, the lock was acquired successfully
     if (row.user_id === userId) {
       return { success: true };
     }
 
+    // Otherwise, fetch the email of the current lock holder for display/debugging
     const holderResult = await client.query(
       `SELECT email
        FROM users
@@ -96,6 +128,13 @@ export async function acquireLock({
   }
 }
 
+/**
+ * Releases a lock only if it belongs to the given user.
+ *
+ * Returns the number of deleted rows:
+ * - 1 means the lock was successfully released
+ * - 0 means no matching lock was found or the user did not own it
+ */
 export async function releaseLock({
   entityType,
   entityId,
@@ -122,6 +161,12 @@ export async function releaseLock({
   }
 }
 
+/**
+ * Releases all locks currently held by a given user.
+ * This is useful when a socket disconnects and all related locks should be cleaned up.
+ *
+ * Returns the list of released locks.
+ */
 export async function releaseAllLocksForSocket(userId: number): Promise<ReleasedLock[]> {
   const client = await pool.connect();
 
@@ -142,6 +187,14 @@ export async function releaseAllLocksForSocket(userId: number): Promise<Released
   }
 }
 
+/**
+ * Checks whether the given user currently owns a valid (non-expired) lock
+ * for the specified entity.
+ *
+ * Returns:
+ * - true if the user owns the lock and it has not expired
+ * - false otherwise
+ */
 export async function checkLockOwnership({
   entityType,
   entityId,
