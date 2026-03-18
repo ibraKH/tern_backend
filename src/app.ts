@@ -44,12 +44,17 @@ const frontendUrl = FRONTEND_URL;
 const allowedOrigins = Array.from(CORS_ALLOWED_ORIGINS);
 
 app.use(cors({
-  origin: (origin, callback) => {    
+  origin: (origin, callback) => {
+    console.log('CORS origin check:', origin);
+    console.log('Allowed origins:', allowedOrigins);
+    
     if (!origin) return callback(null, true);
     
     if (allowedOrigins.includes(origin)) {
+      console.log('Origin allowed:', origin);
       callback(null, true);
     } else {
+      console.log('Origin blocked:', origin);
       callback(new Error('Not allowed by CORS'));
     }
   },
