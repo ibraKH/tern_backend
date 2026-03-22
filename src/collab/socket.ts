@@ -2,6 +2,7 @@ import type { Server, Socket } from 'socket.io';
 
 import { joinRoom, leaveRoom, getRoom } from './roomManager';
 import type { SocketAuthedUser } from './auth.middleware';
+import { getRecentActivity } from '../services/collab/activity.service';
 
 export const COLLAB_THROTTLE_MS = 50 as const;
 
@@ -129,6 +130,17 @@ export function registerCollabHandlers(io: Server): void {
 
         // Sync presence to the joiner only.
         socket.emit('presence:sync', { users });
+
+        // Send last 20 activity entries so the joiner has immediate context.
+        // Wrapped in try-catch so a DB failure never prevents joining the room.
+        if (modelName) {
+          try {
+            const activity = await getRecentActivity(modelName);
+            socket.emit('activity:recent', { activity });
+          } catch {
+            socket.emit('activity:recent', { activity: [] });
+          }
+        }
 
         // Notify others in the room about the new/updated user.
         socket.to(roomKey).emit('presence:join', { user });
