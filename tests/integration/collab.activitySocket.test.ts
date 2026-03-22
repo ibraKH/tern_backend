@@ -4,7 +4,7 @@ jest.mock('../../src/config/database', () => ({
 }));
 
 import http from 'http';
-import { Server } from 'socket.io';
+import type { Server } from 'socket.io';
 import { io as Client, type Socket as ClientSocket } from 'socket.io-client';
 
 import { initIo } from '../../src/socket';
