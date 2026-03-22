@@ -8,6 +8,16 @@ jest.mock('../../src/utils/jwt', () => ({
   verifyToken: jest.fn(),
 }));
 
+jest.mock('../../src/services/collab/activity.service', () => ({
+  __esModule: true,
+  logActivity: jest.fn().mockResolvedValue(undefined),
+}));
+
+jest.mock('../../src/socket', () => ({
+  __esModule: true,
+  io: { to: jest.fn().mockReturnValue({ emit: jest.fn() }) },
+}));
+
 import request from 'supertest';
 
 import app from '../../src/app';
