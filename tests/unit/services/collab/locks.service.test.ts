@@ -9,199 +9,253 @@ import {
 jest.mock('../../../../src/config/database', () => ({
   __esModule: true,
   default: {
-    connect: jest.fn(),
+    query: jest.fn(),
   },
 }));
 
 describe('locks.service', () => {
-  const mockQuery = jest.fn();
-  const mockRelease = jest.fn();
+  const mockQuery = pool.query as jest.Mock;
 
   beforeEach(() => {
     jest.clearAllMocks();
-    (pool.connect as jest.Mock).mockResolvedValue({
-      query: mockQuery,
-      release: mockRelease,
-    });
   });
 
-  it('User A acquires lock → success: true', async () => {
-    mockQuery.mockResolvedValueOnce({
-      rows: [{ user_id: 1, expires_at: '2099-01-01T00:00:00.000Z' }],
-    });
-
-    await expect(
-      acquireLock({
-        entityType: 'node',
-        entityId: 'n-1',
-        modelName: 'Model A',
-        userId: 1,
-      })
-    ).resolves.toEqual({ success: true });
-
-    expect(mockQuery).toHaveBeenCalledWith(
-      expect.stringContaining('INSERT INTO editing_locks'),
-      ['node', 'n-1', 'Model A', 1]
-    );
-    expect(mockRelease).toHaveBeenCalled();
-  });
-
-  it('User A acquires same lock again → success: true (refresh, expires_at updated)', async () => {
-    mockQuery.mockResolvedValueOnce({
-      rows: [{ user_id: 1, expires_at: '2099-01-01T00:00:00.000Z' }],
-    });
-
-    await expect(
-      acquireLock({
-        entityType: 'edge',
-        entityId: 'e-1',
-        modelName: 'Model A',
-        userId: 1,
-      })
-    ).resolves.toEqual({ success: true });
-
-    expect(mockQuery).toHaveBeenCalledWith(
-      expect.stringContaining("NOW() + INTERVAL '30 seconds'"),
-      ['edge', 'e-1', 'Model A', 1]
-    );
-  });
-
-  it("User B tries to acquire User A's active lock → success: false, heldBy: A's email", async () => {
+  it('acquireLock: resolves modelName -> model_id and inserts into collab_locks', async () => {
     mockQuery
-      .mockResolvedValueOnce({
-        rows: [{ user_id: 1, expires_at: '2099-01-01T00:00:00.000Z' }],
-      })
-      .mockResolvedValueOnce({
-        rows: [{ email: 'user.a@example.com' }],
-      });
+      .mockResolvedValueOnce({ rows: [{ id: 101 }] })
+      .mockResolvedValueOnce({ rows: [{ user_id: 1 }] });
 
     await expect(
       acquireLock({
         entityType: 'node',
-        entityId: 'n-2',
-        modelName: 'Model B',
-        userId: 2,
+        entityId: '42',
+        modelName: 'Model A',
+        userId: 1,
       })
-    ).resolves.toEqual({ success: false, heldBy: 'user.a@example.com' });
+    ).resolves.toEqual({ success: true });
+
+    expect(mockQuery).toHaveBeenNthCalledWith(
+      1,
+      'SELECT id FROM stmmodel WHERE stm_name = $1 LIMIT 1',
+      ['Model A']
+    );
 
     expect(mockQuery).toHaveBeenNthCalledWith(
       2,
-      expect.stringContaining('SELECT email'),
-      [1]
+      expect.stringContaining('INSERT INTO collab_locks'),
+      [101, 'node', 42, 1]
+    );
+
+    expect(mockQuery).toHaveBeenNthCalledWith(
+      2,
+      expect.stringContaining('ON CONFLICT (model_id, entity_type, entity_id)'),
+      [101, 'node', 42, 1]
     );
   });
 
-  it("User B acquires lock after A's lock has expired → success: true", async () => {
-    mockQuery.mockResolvedValueOnce({
-      rows: [{ user_id: 2, expires_at: '2099-01-01T00:00:00.000Z' }],
-    });
+  it('acquireLock: same user can refresh existing lock', async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rows: [{ id: 202 }] })
+      .mockResolvedValueOnce({ rows: [{ user_id: 7 }] });
 
     await expect(
       acquireLock({
         entityType: 'edge',
-        entityId: 'e-2',
-        modelName: 'Model B',
-        userId: 2,
+        entityId: 99,
+        modelName: 'Model Refresh',
+        userId: 7,
       })
     ).resolves.toEqual({ success: true });
+
+    expect(mockQuery).toHaveBeenNthCalledWith(
+      2,
+      expect.stringContaining("NOW() + INTERVAL '30 seconds'"),
+      [202, 'edge', 99, 7]
+    );
   });
 
-  it('releaseLock by correct user → row deleted', async () => {
-    mockQuery.mockResolvedValueOnce({ rowCount: 1 });
+  it("acquireLock: returns success false and holder email when another user's lock is active", async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rows: [{ id: 303 }] })
+      .mockResolvedValueOnce({ rows: [{ user_id: 11 }] })
+      .mockResolvedValueOnce({ rows: [{ email: 'owner@example.com' }] });
+
+    await expect(
+      acquireLock({
+        entityType: 'node',
+        entityId: '55',
+        modelName: 'Model Locked',
+        userId: 22,
+      })
+    ).resolves.toEqual({ success: false, heldBy: 'owner@example.com' });
+
+    expect(mockQuery).toHaveBeenNthCalledWith(
+      3,
+      expect.stringContaining('FROM auth_users'),
+      [11]
+    );
+  });
+
+  it('acquireLock: returns heldBy null when auth_users row is missing', async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rows: [{ id: 404 }] })
+      .mockResolvedValueOnce({ rows: [{ user_id: 33 }] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    await expect(
+      acquireLock({
+        entityType: 'edge',
+        entityId: '88',
+        modelName: 'Model Missing User',
+        userId: 44,
+      })
+    ).resolves.toEqual({ success: false, heldBy: null });
+  });
+
+  it('releaseLock: deletes from collab_locks using resolved model_id and integer entity_id', async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rows: [{ id: 505 }] })
+      .mockResolvedValueOnce({ rowCount: 1 });
 
     await expect(
       releaseLock({
         entityType: 'node',
-        entityId: 'n-3',
+        entityId: '123',
         modelName: 'Model C',
         userId: 3,
       })
     ).resolves.toBe(1);
 
-    expect(mockQuery).toHaveBeenCalledWith(
-      expect.stringContaining('DELETE FROM editing_locks'),
-      ['node', 'n-3', 'Model C', 3]
+    expect(mockQuery).toHaveBeenNthCalledWith(
+      1,
+      'SELECT id FROM stmmodel WHERE stm_name = $1 LIMIT 1',
+      ['Model C']
+    );
+
+    expect(mockQuery).toHaveBeenNthCalledWith(
+      2,
+      expect.stringContaining('DELETE FROM collab_locks'),
+      [505, 'node', 123, 3]
     );
   });
 
-  it('releaseLock by wrong user → row still exists', async () => {
-    mockQuery.mockResolvedValueOnce({ rowCount: 0 });
+  it('releaseLock: returns 0 when no lock row matched', async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rows: [{ id: 606 }] })
+      .mockResolvedValueOnce({ rowCount: 0 });
 
     await expect(
       releaseLock({
         entityType: 'edge',
-        entityId: 'e-3',
-        modelName: 'Model C',
+        entityId: 456,
+        modelName: 'Model D',
         userId: 999,
       })
     ).resolves.toBe(0);
   });
 
-  it('releaseAllLocksForSocket → all rows for user deleted, correct list returned', async () => {
+  it('releaseAllLocksForSocket: deletes all user locks and returns entity/model names', async () => {
     mockQuery.mockResolvedValueOnce({
       rows: [
-        { entityType: 'node', entityId: 'n-4', modelName: 'Model D' },
-        { entityType: 'edge', entityId: 'e-4', modelName: 'Model D' },
+        { entityType: 'node', entityId: 10, modelName: 'Model X' },
+        { entityType: 'edge', entityId: 11, modelName: 'Model Y' },
       ],
     });
 
     await expect(releaseAllLocksForSocket(4)).resolves.toEqual([
-      { entityType: 'node', entityId: 'n-4', modelName: 'Model D' },
-      { entityType: 'edge', entityId: 'e-4', modelName: 'Model D' },
+      { entityType: 'node', entityId: 10, modelName: 'Model X' },
+      { entityType: 'edge', entityId: 11, modelName: 'Model Y' },
     ]);
 
     expect(mockQuery).toHaveBeenCalledWith(
-      expect.stringContaining('DELETE FROM editing_locks'),
+      expect.stringContaining('DELETE FROM collab_locks cl'),
+      [4]
+    );
+
+    expect(mockQuery).toHaveBeenCalledWith(
+      expect.stringContaining('USING stmmodel sm'),
       [4]
     );
   });
 
-  it('checkLockOwnership → true for owner with valid lock, false for expired, false for wrong user', async () => {
+  it('checkLockOwnership: true when matching active lock exists', async () => {
     mockQuery
-      .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
-      .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [] });
+      .mockResolvedValueOnce({ rows: [{ id: 707 }] })
+      .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] });
 
     await expect(
       checkLockOwnership({
         entityType: 'node',
-        entityId: 'n-5',
+        entityId: '900',
         modelName: 'Model E',
         userId: 5,
       })
     ).resolves.toBe(true);
 
-    await expect(
-      checkLockOwnership({
-        entityType: 'node',
-        entityId: 'n-5',
-        modelName: 'Model E',
-        userId: 5,
-      })
-    ).resolves.toBe(false);
+    expect(mockQuery).toHaveBeenNthCalledWith(
+      2,
+      expect.stringContaining('FROM collab_locks'),
+      [707, 'node', 900, 5]
+    );
+
+    expect(mockQuery).toHaveBeenNthCalledWith(
+      2,
+      expect.stringContaining('expires_at > NOW()'),
+      [707, 'node', 900, 5]
+    );
+  });
+
+  it('checkLockOwnership: false when no active lock exists', async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rows: [{ id: 808 }] })
+      .mockResolvedValueOnce({ rows: [] });
 
     await expect(
       checkLockOwnership({
-        entityType: 'node',
-        entityId: 'n-5',
-        modelName: 'Model E',
-        userId: 999,
+        entityType: 'edge',
+        entityId: 901,
+        modelName: 'Model F',
+        userId: 6,
       })
     ).resolves.toBe(false);
+  });
+
+  it('throws when modelName cannot be resolved', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+
+    await expect(
+      acquireLock({
+        entityType: 'node',
+        entityId: '1',
+        modelName: 'Unknown Model',
+        userId: 1,
+      })
+    ).rejects.toThrow('Model not found: Unknown Model');
   });
 
   it('rejects invalid entityType', async () => {
     await expect(
       acquireLock({
         entityType: 'invalid' as never,
-        entityId: 'n-1',
+        entityId: '1',
         modelName: 'Model A',
         userId: 1,
       })
     ).rejects.toThrow("entityType must be one of ['node', 'edge']");
   });
 
-  it('rejects empty entityId and modelName', async () => {
+  it('rejects empty modelName', async () => {
+    await expect(
+      acquireLock({
+        entityType: 'node',
+        entityId: '1',
+        modelName: '   ',
+        userId: 1,
+      })
+    ).rejects.toThrow('modelName must be a non-empty string');
+  });
+
+  it('rejects invalid entityId values', async () => {
     await expect(
       acquireLock({
         entityType: 'node',
@@ -209,15 +263,30 @@ describe('locks.service', () => {
         modelName: 'Model A',
         userId: 1,
       })
-    ).rejects.toThrow('entityId must be a non-empty string');
+    ).rejects.toThrow('entityId must be a non-empty string or positive integer');
 
     await expect(
       acquireLock({
         entityType: 'node',
-        entityId: 'n-1',
-        modelName: '',
+        entityId: 'abc',
+        modelName: 'Model A',
         userId: 1,
       })
-    ).rejects.toThrow('modelName must be a non-empty string');
+    ).rejects.toThrow('entityId must be a positive integer');
+
+    await expect(
+      acquireLock({
+        entityType: 'node',
+        entityId: 0,
+        modelName: 'Model A',
+        userId: 1,
+      })
+    ).rejects.toThrow('entityId must be a positive integer');
+  });
+
+  it('rejects invalid userId', async () => {
+    await expect(
+      releaseAllLocksForSocket(0)
+    ).rejects.toThrow('userId must be a positive integer');
   });
 });
