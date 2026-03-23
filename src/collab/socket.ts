@@ -1,6 +1,7 @@
 import type { Server, Socket } from 'socket.io';
 
-import { joinRoom, leaveRoom, getRoom } from './roomManager';
+import { acquireLock, releaseAllLocksForSocket, releaseLock } from '../services/collab/locks.service';
+import { getRoom, getUserColor, joinRoom, leaveRoom } from './roomManager';
 import type { SocketAuthedUser } from './auth.middleware';
 
 export const COLLAB_THROTTLE_MS = 50 as const;
@@ -13,8 +14,13 @@ function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
 }
 
+function isFiniteInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && Number.isInteger(value);
+}
+
 type CursorMovePayload = { x: number; y: number; modelName: string };
 type ViewportUpdatePayload = { x: number; y: number; zoom: number; modelName: string };
+type LockPayload = { entityType: 'node' | 'edge'; entityId: string | number; modelName: string };
 
 type RoomKey = string;
 type RoomLocatorPayload = { modelId?: number; modelName?: string };
@@ -34,10 +40,6 @@ function getSocketUser(socket: Socket): SocketAuthedUser | undefined {
   return (socket.data as { user?: SocketAuthedUser } | undefined)?.user;
 }
 
-function isFiniteInteger(value: unknown): value is number {
-  return typeof value === 'number' && Number.isFinite(value) && Number.isInteger(value);
-}
-
 function resolveRoomKey(payload: unknown): { roomKey: RoomKey; modelName?: string } | { error: string } {
   const modelId = (payload as RoomLocatorPayload | undefined)?.modelId;
   const modelName = (payload as RoomLocatorPayload | undefined)?.modelName;
@@ -51,6 +53,26 @@ function resolveRoomKey(payload: unknown): { roomKey: RoomKey; modelName?: strin
   }
 
   return { error: 'Either modelId (positive integer) or modelName (non-empty string) is required' };
+}
+
+function parseLockPayload(payload: unknown): LockPayload | { error: string } {
+  const entityType = (payload as Partial<LockPayload> | undefined)?.entityType;
+  const entityId = (payload as Partial<LockPayload> | undefined)?.entityId;
+  const modelName = (payload as Partial<LockPayload> | undefined)?.modelName;
+
+  if (entityType !== 'node' && entityType !== 'edge') {
+    return { error: "entityType must be one of ['node', 'edge']" };
+  }
+
+  if (!isNonEmptyString(modelName)) {
+    return { error: 'modelName must be a non-empty string' };
+  }
+
+  if (!(isNonEmptyString(entityId) || (isFiniteInteger(entityId) && entityId > 0))) {
+    return { error: 'entityId must be a non-empty string or positive integer' };
+  }
+
+  return { entityType, entityId, modelName: modelName.trim() };
 }
 
 export function registerCollabHandlers(io: Server): void {
@@ -90,8 +112,6 @@ export function registerCollabHandlers(io: Server): void {
 
         pending.delete(key);
 
-        // Re-validate that this socket is still the active room member for this user.
-        // This prevents stale sockets from broadcasting if the user reconnects within the throttle window.
         const room = getRoom(roomKey);
         const activeSocketId = room?.socketIdByUserId.get(String(userId));
         if (!activeSocketId || activeSocketId !== entry.socketId) return;
@@ -127,10 +147,7 @@ export function registerCollabHandlers(io: Server): void {
         const room = getRoom(roomKey);
         const users = room ? Array.from(room.users.values()) : [];
 
-        // Sync presence to the joiner only.
         socket.emit('presence:sync', { users });
-
-        // Notify others in the room about the new/updated user.
         socket.to(roomKey).emit('presence:join', { user });
       })().catch(() => {
         socket.emit('error:validation', { message: 'failed to join room' });
@@ -208,9 +225,104 @@ export function registerCollabHandlers(io: Server): void {
       );
     });
 
+    socket.on('lock:acquire', (payload: unknown) => {
+      const parsed = parseLockPayload(payload);
+      if ('error' in parsed) {
+        socket.emit('error:validation', { message: parsed.error });
+        return;
+      }
+
+      const roomKey = `name:${parsed.modelName}`;
+      const user = getSocketUser(socket);
+      if (!user) return;
+
+      const membership = isCurrentRoomSocket(roomKey, user.uid);
+      if (!membership) {
+        socket.emit('error:validation', { message: 'lock:acquire requires joining the model room first' });
+        return;
+      }
+
+      void acquireLock({
+        entityType: parsed.entityType,
+        entityId: parsed.entityId,
+        modelName: parsed.modelName,
+        userId: user.uid,
+      })
+        .then((result) => {
+          if (!result.success) {
+            socket.emit('lock:denied', {
+              entityType: parsed.entityType,
+              entityId: parsed.entityId,
+              heldBy: result.heldBy,
+            });
+            return;
+          }
+
+          const color = getUserColor(user.uid, roomKey) ?? membership.color;
+          // Broadcast to room excluding the sender, matching the integration test expectation
+          // that the requester does NOT receive lock:acquired
+          socket.to(roomKey).emit('lock:acquired', {
+            entityType: parsed.entityType,
+            entityId: parsed.entityId,
+            userId: user.uid,
+            color,
+          });
+        })
+        .catch(() => {
+          socket.emit('error:validation', { message: 'failed to acquire lock' });
+        });
+    });
+
+    socket.on('lock:release', (payload: unknown) => {
+      const parsed = parseLockPayload(payload);
+      if ('error' in parsed) {
+        socket.emit('error:validation', { message: parsed.error });
+        return;
+      }
+
+      const roomKey = `name:${parsed.modelName}`;
+      const user = getSocketUser(socket);
+      if (!user) return;
+
+      const membership = isCurrentRoomSocket(roomKey, user.uid);
+      if (!membership) {
+        socket.emit('error:validation', { message: 'lock:release requires joining the model room first' });
+        return;
+      }
+
+      void releaseLock({
+        entityType: parsed.entityType,
+        entityId: parsed.entityId,
+        modelName: parsed.modelName,
+        userId: user.uid,
+      })
+        .then((deletedCount) => {
+          if (deletedCount > 0) {
+            io.to(roomKey).emit('lock:released', {
+              entityType: parsed.entityType,
+              entityId: parsed.entityId,
+            });
+          }
+        })
+        .catch(() => {
+          socket.emit('error:validation', { message: 'failed to release lock' });
+        });
+    });
+
     socket.on('disconnecting', () => {
       void (async () => {
         const rooms = Array.from(socket.rooms).filter((r) => r !== socket.id);
+        const currentUser = getSocketUser(socket);
+
+        if (currentUser) {
+          const releasedLocks = await releaseAllLocksForSocket(currentUser.uid).catch(() => []);
+          for (const releasedLock of releasedLocks) {
+            io.to(`name:${releasedLock.modelName}`).emit('lock:released', {
+              entityType: releasedLock.entityType,
+              entityId: releasedLock.entityId,
+            });
+          }
+        }
 
         for (const roomKey of rooms) {
           const left = await leaveRoom(io, socket, roomKey);
@@ -219,8 +331,6 @@ export function registerCollabHandlers(io: Server): void {
           }
         }
 
-        // Cleanup pending throttled broadcasts for this socket/user.
-        const currentUser = getSocketUser(socket);
         if (currentUser) {
           for (const roomKey of rooms) {
             for (const event of ['cursor:move', 'viewport:update'] as const) {
