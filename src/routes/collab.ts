@@ -1,14 +1,17 @@
 import express, { Request, Response } from 'express';
 import { requireAuth } from '../middlewares/auth.middleware';
 import { validate } from '../validation/validate';
-import { getRecentActivity } from '../services/collab/activity.service';
+import { getRecentActivity, logActivity } from '../services/collab/activity.service';
 import {
   createComment,
   deleteComment,
   getComments,
   resolveComment,
+  type CommentResult,
 } from '../services/collab/comments.service';
 import { createCommentSchema } from '../validation/collab.schemas';
+import { getIo } from '../socket';
+import { getSocketIdsByUserId } from '../collab/roomManager';
 
 const collab = express.Router();
 
@@ -100,6 +103,63 @@ collab.post(
         authorId: user.id,
         authorEmail: user.email,
       });
+
+      // Log activity
+      await logActivity({
+        modelName: modelName.trim(),
+        userId: user.id,
+        action: 'comment_added',
+        entityType: comment.entityType ?? undefined,
+        entityId: comment.entityId ?? undefined,
+        detail: { commentId: comment.id },
+      });
+
+      // Broadcast comment:new event to all sockets in the room
+      const io = getIo();
+      const roomKey = `name:${modelName.trim()}`;
+      io.to(roomKey).emit('comment:new', {
+        comment,
+        entityType: comment.entityType,
+        entityId: comment.entityId,
+      });
+
+      // Send comment:mention events to mentioned users (if online)
+      if (comment.mentions && comment.mentions.length > 0) {
+        for (const mentionedEmail of comment.mentions) {
+          // Query to get user ID from email
+          // This is already done in createComment, so mentions are user emails
+          // But we need the user ID to find their sockets
+          // We need to enhance this - for now we'll lookup by email
+
+          // Note: In a real implementation, we'd get user IDs from the DB query in createComment
+          // For now, we query the DB here to get the user ID
+          await (async () => {
+            try {
+              const pool = require('../config/database').default;
+              const userRes = await pool.query<{ id: number }>(
+                'SELECT id FROM auth_users WHERE LOWER(email) = $1 LIMIT 1',
+                [mentionedEmail.toLowerCase()]
+              );
+
+              if (userRes.rows.length === 0) return; // User not found
+
+              const mentionedUserId = userRes.rows[0].id;
+              const mentionedSocketIds = getSocketIdsByUserId(io, mentionedUserId);
+
+              // Emit comment:mention to each of their connected sockets
+              for (const socketId of mentionedSocketIds) {
+                io.to(socketId).emit('comment:mention', {
+                  comment,
+                  modelName: modelName.trim(),
+                });
+              }
+            } catch (err) {
+              console.error('[collab] Failed to send mention notification:', err);
+            }
+          })();
+        }
+      }
+
       return res.status(201).json({ comment });
     } catch (err) {
       console.error('[collab] POST create comment failed:', err);
