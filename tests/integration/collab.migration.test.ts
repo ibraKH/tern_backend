@@ -1,22 +1,6 @@
 import { execSync } from 'child_process';
 import pool from '../../src/config/database';
 
-// Skip the entire suite when Postgres is unreachable (e.g. CI without a DB service).
-let dbAvailable = true;
-try {
-  execSync('npm run migrate:up', { stdio: 'pipe' });
-} catch {
-  dbAvailable = false;
-}
-
-if (!dbAvailable) {
-  test('skipped — Postgres not available', () => {
-    console.warn('[collab.migration] Postgres unreachable, skipping migration tests');
-  });
-}
-
-(dbAvailable ? describe : describe.skip)('collab migration tests', () => {
-
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -71,14 +55,29 @@ async function uniqueConstraintExists(
 }
 
 // ---------------------------------------------------------------------------
-// Test fixtures
+// Test suite — wrapped in describe so discovery doesn't trigger migrations
 // ---------------------------------------------------------------------------
 
+describe('collab migration tests', () => {
+
+let dbAvailable = true;
 let testModelId: number;
 let testUserId: number;
 let testCommentId: number;
 
 beforeAll(async () => {
+  // Check DB availability with a lightweight query before running migrations.
+  try {
+    await pool.query('SELECT 1');
+  } catch {
+    dbAvailable = false;
+    console.warn('[collab.migration] Postgres unreachable, skipping migration tests');
+    return;
+  }
+
+  // Run migration (idempotent — safe to run repeatedly).
+  execSync('npm run migrate:up', { stdio: 'pipe' });
+
   // Shared model
   const modelRes = await pool.query<{ id: number }>(
     `INSERT INTO stmmodel(stm_name) VALUES($1) RETURNING id`,
@@ -101,11 +100,22 @@ beforeAll(async () => {
   testCommentId = commentRes.rows[0].id;
 });
 
+// Guard: when DB is unreachable, fail tests with a clear message instead of
+// cryptic connection errors.  Jest 30 (jest-circus) has no runtime skip API,
+// so a clear throw is the best we can do.
+beforeEach(() => {
+  if (!dbAvailable) {
+    throw new Error('Postgres not available — skipping (set DATABASE_URL to run migration tests)');
+  }
+});
+
 afterAll(async () => {
-  // Deleting the model cascades to collab_activity/locks/comments/milestones.
-  // Deleting comments cascades to collab_mentions.
-  await pool.query('DELETE FROM stmmodel  WHERE id = $1', [testModelId]);
-  await pool.query('DELETE FROM auth_users WHERE id = $1', [testUserId]);
+  if (dbAvailable) {
+    // Deleting the model cascades to collab_activity/locks/comments/milestones.
+    // Deleting comments cascades to collab_mentions.
+    await pool.query('DELETE FROM stmmodel  WHERE id = $1', [testModelId]);
+    await pool.query('DELETE FROM auth_users WHERE id = $1', [testUserId]);
+  }
   await pool.end();
 });
 
@@ -453,4 +463,4 @@ describe('FK ON DELETE CASCADE from stmmodel', () => {
   });
 });
 
-}); // end: dbAvailable wrapper
+}); // end: collab migration tests

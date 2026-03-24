@@ -40,6 +40,14 @@ function mockDbModelNotFound() {
   (pool.query as jest.Mock).mockResolvedValueOnce({ rows: [] });
 }
 
+// For modelId-only joins: resolve name from id, then model lookup by name, then activity query.
+function mockDbModelIdWithActivity(modelName: string, rows: Record<string, unknown>[] = []) {
+  (pool.query as jest.Mock)
+    .mockResolvedValueOnce({ rows: [{ stm_name: modelName }] }) // name resolution by id
+    .mockResolvedValueOnce({ rows: [{ id: 5 }] })              // model lookup by name (getRecentActivity)
+    .mockResolvedValueOnce({ rows });                            // activity query
+}
+
 describe('collab activity socket events', () => {
   let server: http.Server;
   let ioServer: Server;
@@ -191,6 +199,57 @@ describe('collab activity socket events', () => {
     s.close();
   });
 
+  // ── modelId-only join ────────────────────────────────────────────
+
+  it('joiner by modelId only still receives activity:recent', async () => {
+    const token = signToken({ uid: 710, email: 'u710@test.com', role: 'Editor' });
+
+    mockDbModelIdWithActivity('resolved-model', [
+      {
+        id: 2,
+        action: 'node_deleted',
+        entityType: 'node',
+        entityId: 20,
+        detail: null,
+        createdAt: '2026-02-01T08:00:00.000Z',
+        userId: 50,
+        userEmail: 'bob@example.com',
+      },
+    ]);
+
+    const s = await connectClient(token);
+    const activityP = once<ActivityRecent>(s, 'activity:recent');
+
+    s.emit('room:join', { modelId: 5 });
+    const result = await activityP;
+
+    expect(result.activity).toHaveLength(1);
+    expect(result.activity[0]).toMatchObject({
+      id: 2,
+      action: 'node_deleted',
+      user: { id: 50, email: 'bob@example.com' },
+    });
+
+    s.close();
+  });
+
+  it('joiner by modelId receives empty activity when model id not found in DB', async () => {
+    const token = signToken({ uid: 711, email: 'u711@test.com', role: 'Editor' });
+
+    // Name resolution returns no rows → resolvedModelName stays undefined → empty array
+    (pool.query as jest.Mock).mockResolvedValueOnce({ rows: [] });
+
+    const s = await connectClient(token);
+    const activityP = once<ActivityRecent>(s, 'activity:recent');
+
+    s.emit('room:join', { modelId: 999 });
+    const result = await activityP;
+
+    expect(result.activity).toEqual([]);
+
+    s.close();
+  });
+
   // ── broadcastActivity ──────────────────────────────────────────────
 
   it('broadcastActivity sends activity:new to all room members', async () => {
@@ -218,7 +277,7 @@ describe('collab activity socket events', () => {
     const s1Activity = once<ActivityNew>(s1, 'activity:new');
     const s2Activity = once<ActivityNew>(s2, 'activity:new');
 
-    broadcastActivity(ioServer, modelName, FAKE_ENTRY);
+    broadcastActivity(ioServer, `name:${modelName}`, FAKE_ENTRY);
 
     const [r1, r2] = await Promise.all([s1Activity, s2Activity]);
 
@@ -252,7 +311,7 @@ describe('collab activity socket events', () => {
     let s2Received = false;
     s2.on('activity:new', () => (s2Received = true));
 
-    broadcastActivity(ioServer, modelA, FAKE_ENTRY);
+    broadcastActivity(ioServer, `name:${modelA}`, FAKE_ENTRY);
 
     await delay(150);
     expect(s2Received).toBe(false);

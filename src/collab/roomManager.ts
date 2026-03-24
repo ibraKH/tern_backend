@@ -143,9 +143,9 @@ export function getUserColor(userId: number, roomKey: string): string | undefine
   return room.users.get(userKey(userId))?.color;
 }
 
-// Broadcast a new activity entry to all sockets in the model room.
+// Broadcast a new activity entry to all sockets in a collab room.
 // Called by features like comments, milestones, and model saves to push live updates.
-export function broadcastActivity(io: Server, modelName: string, entry: ActivityEntry): void {
-  const roomKey = `name:${modelName}`;
+// The caller must pass the already-resolved room key (e.g. "name:foo" or "model:5").
+export function broadcastActivity(io: Server, roomKey: string, entry: ActivityEntry): void {
   io.to(roomKey).emit('activity:new', { entry });
 }

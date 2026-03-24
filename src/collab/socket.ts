@@ -3,6 +3,7 @@ import type { Server, Socket } from 'socket.io';
 import { joinRoom, leaveRoom, getRoom } from './roomManager';
 import type { SocketAuthedUser } from './auth.middleware';
 import { getRecentActivity } from '../services/collab/activity.service';
+import pool from '../config/database';
 
 export const COLLAB_THROTTLE_MS = 50 as const;
 
@@ -39,7 +40,7 @@ function isFiniteInteger(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value) && Number.isInteger(value);
 }
 
-function resolveRoomKey(payload: unknown): { roomKey: RoomKey; modelName?: string } | { error: string } {
+export function resolveRoomKey(payload: unknown): { roomKey: RoomKey; modelName?: string } | { error: string } {
   const modelId = (payload as RoomLocatorPayload | undefined)?.modelId;
   const modelName = (payload as RoomLocatorPayload | undefined)?.modelName;
 
@@ -131,19 +132,40 @@ export function registerCollabHandlers(io: Server): void {
         // Sync presence to the joiner only.
         socket.emit('presence:sync', { users });
 
+        // Notify others in the room immediately — don't block on the DB query below.
+        socket.to(roomKey).emit('presence:join', { user });
+
         // Send last 20 activity entries so the joiner has immediate context.
         // Wrapped in try-catch so a DB failure never prevents joining the room.
-        if (modelName) {
-          try {
-            const activity = await getRecentActivity(modelName);
-            socket.emit('activity:recent', { activity });
-          } catch {
-            socket.emit('activity:recent', { activity: [] });
+        // When modelName is missing (modelId-only join), resolve it from the DB.
+        let resolvedModelName = modelName;
+        if (!resolvedModelName) {
+          const modelId = (payload as RoomLocatorPayload | undefined)?.modelId;
+          if (isFiniteInteger(modelId) && modelId > 0) {
+            try {
+              const res = await pool.query<{ stm_name: string }>(
+                'SELECT stm_name FROM stmmodel WHERE id = $1',
+                [modelId],
+              );
+              if (res.rows.length > 0) {
+                resolvedModelName = res.rows[0].stm_name;
+              }
+            } catch {
+              // fall through — resolvedModelName stays undefined
+            }
           }
         }
 
-        // Notify others in the room about the new/updated user.
-        socket.to(roomKey).emit('presence:join', { user });
+        try {
+          if (resolvedModelName) {
+            const activity = await getRecentActivity(resolvedModelName);
+            socket.emit('activity:recent', { activity });
+          } else {
+            socket.emit('activity:recent', { activity: [] });
+          }
+        } catch {
+          socket.emit('activity:recent', { activity: [] });
+        }
       })().catch(() => {
         socket.emit('error:validation', { message: 'failed to join room' });
       });
