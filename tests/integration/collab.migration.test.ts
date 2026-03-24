@@ -1,5 +1,17 @@
-import { execSync } from 'child_process';
+import { execSync, spawnSync } from 'child_process';
 import pool from '../../src/config/database';
+
+// Lightweight synchronous DB reachability check — no migrations, no side effects.
+function isDbReachable(): boolean {
+  const result = spawnSync(
+    'node',
+    ['-e', "const{Pool}=require('pg');const p=new Pool();p.query('SELECT 1').then(()=>{p.end();process.exit(0)}).catch(()=>{p.end();process.exit(1)})"],
+    { timeout: 5000, stdio: 'pipe', env: process.env },
+  );
+  return result.status === 0;
+}
+
+const dbAvailable = isDbReachable();
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -55,26 +67,17 @@ async function uniqueConstraintExists(
 }
 
 // ---------------------------------------------------------------------------
-// Test suite — wrapped in describe so discovery doesn't trigger migrations
+// Test suite — skipped entirely when Postgres is unreachable (e.g. CI without DB service).
+// The DB check is synchronous so describe.skip works at registration time.
 // ---------------------------------------------------------------------------
 
-describe('collab migration tests', () => {
+(dbAvailable ? describe : describe.skip)('collab migration tests', () => {
 
-let dbAvailable = true;
 let testModelId: number;
 let testUserId: number;
 let testCommentId: number;
 
 beforeAll(async () => {
-  // Check DB availability with a lightweight query before running migrations.
-  try {
-    await pool.query('SELECT 1');
-  } catch {
-    dbAvailable = false;
-    console.warn('[collab.migration] Postgres unreachable, skipping migration tests');
-    return;
-  }
-
   // Run migration (idempotent — safe to run repeatedly).
   execSync('npm run migrate:up', { stdio: 'pipe' });
 
@@ -100,22 +103,11 @@ beforeAll(async () => {
   testCommentId = commentRes.rows[0].id;
 });
 
-// Guard: when DB is unreachable, fail tests with a clear message instead of
-// cryptic connection errors.  Jest 30 (jest-circus) has no runtime skip API,
-// so a clear throw is the best we can do.
-beforeEach(() => {
-  if (!dbAvailable) {
-    throw new Error('Postgres not available — skipping (set DATABASE_URL to run migration tests)');
-  }
-});
-
 afterAll(async () => {
-  if (dbAvailable) {
-    // Deleting the model cascades to collab_activity/locks/comments/milestones.
-    // Deleting comments cascades to collab_mentions.
-    await pool.query('DELETE FROM stmmodel  WHERE id = $1', [testModelId]);
-    await pool.query('DELETE FROM auth_users WHERE id = $1', [testUserId]);
-  }
+  // Deleting the model cascades to collab_activity/locks/comments/milestones.
+  // Deleting comments cascades to collab_mentions.
+  await pool.query('DELETE FROM stmmodel  WHERE id = $1', [testModelId]);
+  await pool.query('DELETE FROM auth_users WHERE id = $1', [testUserId]);
   await pool.end();
 });
 
