@@ -1,7 +1,7 @@
 import type { Server, Socket } from 'socket.io';
 
 import { acquireLock, releaseAllLocksForSocket, releaseLock } from '../services/collab/locks.service';
-import { getRoom, getUserColor, joinRoom, leaveRoom } from './roomManager';
+import { getRoom, getUserColor, joinRoom, leaveRoom, getSocketIdsByUserId } from './roomManager';
 import type { SocketAuthedUser } from './auth.middleware';
 import { getRecentActivity } from '../services/collab/activity.service';
 import pool from '../config/database';
@@ -444,6 +444,53 @@ export function registerCollabHandlers(io: Server): void {
         .catch(() => {
           socket.emit('error:validation', { message: 'failed to refresh lock' });
         });
+    });
+
+    socket.on('viewport:navigate-to', (payload: unknown) => {
+      const entityType = (payload as { entityType?: unknown } | undefined)?.entityType;
+      const entityId = (payload as { entityId?: unknown } | undefined)?.entityId;
+      const modelName = (payload as { modelName?: unknown } | undefined)?.modelName;
+
+      if (!isNonEmptyString(modelName)) {
+        socket.emit('error:validation', {
+          message: 'viewport:navigate-to requires { modelName: non-empty string, entityType: string, entityId: number }',
+        });
+        return;
+      }
+
+      if (!isNonEmptyString(entityType) || !isFiniteInteger(entityId) || (entityId as number) <= 0) {
+        socket.emit('error:validation', {
+          message: 'viewport:navigate-to requires { modelName: non-empty string, entityType: string, entityId: positive integer }',
+        });
+        return;
+      }
+
+      void (async () => {
+        try {
+          const query = entityType === 'node'
+            ? `SELECT x, y FROM stmnode WHERE id = $1`
+            : `SELECT x, y FROM stmedge WHERE id = $1`;
+
+          const result = await pool.query<{ x: number; y: number }>(query, [entityId]);
+
+          if (result.rows.length === 0) {
+            socket.emit('error:not_found', {
+              message: `${entityType} with id ${entityId} not found`,
+            });
+            return;
+          }
+
+          const { x, y } = result.rows[0];
+          socket.emit('viewport:fly-to', { x, y });
+        } catch (err) {
+          console.error('[collab] viewport:navigate-to failed:', err);
+          socket.emit('error:not_found', {
+            message: `Failed to navigate to ${entityType}`,
+          });
+        }
+      })().catch(() => {
+        // best-effort error handling
+      });
     });
 
     socket.on('disconnecting', () => {

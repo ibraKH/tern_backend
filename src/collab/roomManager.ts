@@ -149,3 +149,17 @@ export function getUserColor(userId: number, roomKey: string): string | undefine
 export function broadcastActivity(io: Server, roomKey: string, entry: ActivityEntry): void {
   io.to(roomKey).emit('activity:new', { entry });
 }
+
+export function getSocketIdsByUserId(io: Server, userId: number): string[] {
+  const socketIds: string[] = [];
+  const userKeyStr = userKey(userId);
+
+  for (const room of rooms.values()) {
+    const socketId = room.socketIdByUserId.get(userKeyStr);
+    if (socketId && io.sockets.sockets.get(socketId)) {
+      socketIds.push(socketId);
+    }
+  }
+
+  return socketIds;
+}
