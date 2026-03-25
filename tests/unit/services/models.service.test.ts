@@ -578,6 +578,7 @@ describe("model.service", () => {
       const model = await getModelByName("ModelX");
 
       expect(client.query).toHaveBeenCalled();
+      expect(model?.id).toBe(1);
       expect(model?.stm_name).toBe("ModelX");
       expect(model?.contributing_experts).toHaveLength(1);
       expect(model?.states[0].attributes[0].attribute_type).toBe("Height");

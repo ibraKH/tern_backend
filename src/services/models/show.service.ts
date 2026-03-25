@@ -149,6 +149,7 @@ export async function getModelByName(name: string): Promise<BMRGData | null> {
     );
 
     const model: BMRGData = {
+      id: row.id,
       stm_name: row.stm_name,
       version: row.version,
       release_date: row.release_date,
