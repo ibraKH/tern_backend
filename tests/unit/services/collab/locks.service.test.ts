@@ -36,7 +36,7 @@ describe('locks.service', () => {
 
     expect(mockQuery).toHaveBeenNthCalledWith(
       1,
-      'SELECT id FROM stmmodel WHERE stm_name = $1 LIMIT 1',
+      'SELECT id, stm_name FROM stmmodel WHERE stm_name = $1 LIMIT 1',
       ['Model A']
     );
 
@@ -128,7 +128,7 @@ describe('locks.service', () => {
 
     expect(mockQuery).toHaveBeenNthCalledWith(
       1,
-      'SELECT id FROM stmmodel WHERE stm_name = $1 LIMIT 1',
+      'SELECT id, stm_name FROM stmmodel WHERE stm_name = $1 LIMIT 1',
       ['Model C']
     );
 
@@ -157,14 +157,14 @@ describe('locks.service', () => {
   it('releaseAllLocksForSocket: deletes all user locks and returns entity/model names', async () => {
     mockQuery.mockResolvedValueOnce({
       rows: [
-        { entityType: 'node', entityId: 10, modelName: 'Model X' },
-        { entityType: 'edge', entityId: 11, modelName: 'Model Y' },
+        { modelId: 10, entityType: 'node', entityId: 10, modelName: 'Model X' },
+        { modelId: 11, entityType: 'edge', entityId: 11, modelName: 'Model Y' },
       ],
     });
 
     await expect(releaseAllLocksForSocket(4)).resolves.toEqual([
-      { entityType: 'node', entityId: 10, modelName: 'Model X' },
-      { entityType: 'edge', entityId: 11, modelName: 'Model Y' },
+      { modelId: 10, entityType: 'node', entityId: 10, modelName: 'Model X' },
+      { modelId: 11, entityType: 'edge', entityId: 11, modelName: 'Model Y' },
     ]);
 
     expect(mockQuery).toHaveBeenCalledWith(
@@ -175,6 +175,23 @@ describe('locks.service', () => {
     expect(mockQuery).toHaveBeenCalledWith(
       expect.stringContaining('USING stmmodel sm'),
       [4]
+    );
+  });
+
+  it('releaseAllLocksForSocket: scopes deletion to the supplied models', async () => {
+    mockQuery.mockResolvedValueOnce({
+      rows: [{ modelId: 22, entityType: 'node', entityId: 99, modelName: 'Scoped Model' }],
+    });
+
+    await expect(
+      releaseAllLocksForSocket(7, { modelIds: [22], modelNames: ['Scoped Model'] })
+    ).resolves.toEqual([
+      { modelId: 22, entityType: 'node', entityId: 99, modelName: 'Scoped Model' },
+    ]);
+
+    expect(mockQuery).toHaveBeenCalledWith(
+      expect.stringContaining('cl.model_id = ANY($2::int[]) OR sm.stm_name = ANY($3::text[])'),
+      [7, [22], ['Scoped Model']]
     );
   });
 
@@ -288,5 +305,26 @@ describe('locks.service', () => {
     await expect(
       releaseAllLocksForSocket(0)
     ).rejects.toThrow('userId must be a positive integer');
+  });
+
+  it('supports resolving locks by modelId', async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rows: [{ id: 909, stm_name: 'Model By Id' }] })
+      .mockResolvedValueOnce({ rows: [{ user_id: 12 }] });
+
+    await expect(
+      acquireLock({
+        entityType: 'node',
+        entityId: '5',
+        modelId: 909,
+        userId: 12,
+      })
+    ).resolves.toEqual({ success: true });
+
+    expect(mockQuery).toHaveBeenNthCalledWith(
+      1,
+      'SELECT id, stm_name FROM stmmodel WHERE id = $1 LIMIT 1',
+      [909]
+    );
   });
 });
