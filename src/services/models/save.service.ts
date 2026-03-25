@@ -442,28 +442,60 @@ export async function upsertTransitions(client: Pick<PoolClient, 'query'>, stm_n
       );
 
     } else {
-      // --- INSERT new transition ---
+      // --- INSERT or UPSERT transition ---
+      // When transition_id is provided, use ON CONFLICT to update if a row
+      // with the same (stm_name, transition_id) already exists (e.g. re-saving
+      // a model whose transitions were previously persisted).
+      const hasBusinessId = transition.transition_id != null;
 
-      const transitionResult = await client.query(
-        `INSERT INTO transitions (
-          stm_name, start_state_id, end_state_id, transition_id,
-          time_100, time_25, likelihood_25, likelihood_100, transition_delta
-        )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-        RETURNING id`,
-        [
-          // transition.id is serial in database, so don't insert it
-          stm_name,
-          startStateId,  // start_state_id and end_state_id must exist in states table
-          endStateId,
-          transition.transition_id,   // is not the id of the transition, Links to the Australianeco_arche type and MVG cross walk.
-          transition.time_100,
-          transition.time_25,
-          transition.likelihood_25,
-          transition.likelihood_100,
-          transition.transition_delta
-        ]
-      );
+      const transitionResult = hasBusinessId
+        ? await client.query(
+            `INSERT INTO transitions (
+              stm_name, start_state_id, end_state_id, transition_id,
+              time_100, time_25, likelihood_25, likelihood_100, transition_delta
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            ON CONFLICT (stm_name, transition_id) DO UPDATE SET
+              start_state_id   = EXCLUDED.start_state_id,
+              end_state_id     = EXCLUDED.end_state_id,
+              time_100         = EXCLUDED.time_100,
+              time_25          = EXCLUDED.time_25,
+              likelihood_25    = EXCLUDED.likelihood_25,
+              likelihood_100   = EXCLUDED.likelihood_100,
+              transition_delta = EXCLUDED.transition_delta
+            RETURNING id`,
+            [
+              stm_name,
+              startStateId,
+              endStateId,
+              transition.transition_id,
+              transition.time_100,
+              transition.time_25,
+              transition.likelihood_25,
+              transition.likelihood_100,
+              transition.transition_delta
+            ]
+          )
+        : await client.query(
+            `INSERT INTO transitions (
+              stm_name, start_state_id, end_state_id, transition_id,
+              time_100, time_25, likelihood_25, likelihood_100, transition_delta
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            RETURNING id`,
+            [
+              stm_name,
+              startStateId,
+              endStateId,
+              transition.transition_id,
+              transition.time_100,
+              transition.time_25,
+              transition.likelihood_25,
+              transition.likelihood_100,
+              transition.transition_delta
+            ]
+          );
+
       transitionId = transitionResult.rows[0].id;
       if (typeof transitionId === 'number') transitionIds.push(transitionId);
     }
