@@ -45,7 +45,7 @@ export function resolveRoomKey(payload: unknown): { roomKey: RoomKey; modelName?
   const modelName = (payload as RoomLocatorPayload | undefined)?.modelName;
 
   if (isFiniteInteger(modelId) && modelId > 0) {
-    return { roomKey: `model:${modelId}`, modelName: isNonEmptyString(modelName) ? modelName : undefined };
+    return { roomKey: `model:${modelId}` };
   }
 
   if (isNonEmptyString(modelName)) {

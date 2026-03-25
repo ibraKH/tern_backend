@@ -250,6 +250,45 @@ describe('collab activity socket events', () => {
     s.close();
   });
 
+  it('conflicting modelId and modelName uses DB-resolved name for activity', async () => {
+    const token = signToken({ uid: 712, email: 'u712@test.com', role: 'Editor' });
+
+    // DB resolves modelId 5 → "correctModel"; activity is fetched for "correctModel"
+    mockDbModelIdWithActivity('correctModel', [
+      {
+        id: 3,
+        action: 'node_added',
+        entityType: 'node',
+        entityId: 30,
+        detail: null,
+        createdAt: '2026-03-01T10:00:00.000Z',
+        userId: 60,
+        userEmail: 'carol@example.com',
+      },
+    ]);
+
+    const s = await connectClient(token);
+    const activityP = once<ActivityRecent>(s, 'activity:recent');
+
+    // Client sends BOTH modelId and a conflicting modelName
+    s.emit('room:join', { modelId: 5, modelName: 'wrongModel' });
+    const result = await activityP;
+
+    // Activity must come from DB-resolved "correctModel", not "wrongModel"
+    expect(result.activity).toHaveLength(1);
+    expect(result.activity[0]).toMatchObject({
+      id: 3,
+      action: 'node_added',
+      user: { id: 60, email: 'carol@example.com' },
+    });
+
+    // Verify the first DB call resolved modelId → name (not using "wrongModel")
+    const firstCall = (pool.query as jest.Mock).mock.calls[0];
+    expect(firstCall[1]).toEqual([5]);
+
+    s.close();
+  });
+
   // ── broadcastActivity ──────────────────────────────────────────────
 
   it('broadcastActivity sends activity:new to all room members', async () => {
