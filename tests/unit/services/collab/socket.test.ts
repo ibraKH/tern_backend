@@ -138,7 +138,7 @@ describe('collab/socket unit', () => {
     });
     (getUserColor as jest.Mock).mockReturnValue('#123456');
     (acquireLock as jest.Mock).mockResolvedValue({ success: true });
-    (io.to as jest.Mock).mockReturnValue(roomBroadcast);
+    socket.to = jest.fn(() => roomBroadcast);
 
     socket.rooms.add('name:Model A');
 
@@ -156,15 +156,21 @@ describe('collab/socket unit', () => {
 
     expect(acquireLock).toHaveBeenCalledWith({
       entityType: 'node',
-      entityId: '42',
+      entityId: 42,
       modelName: 'Model A',
       userId: 10,
     });
 
-    expect(io.to).toHaveBeenCalledWith('name:Model A');
+    expect(socket.emit).toHaveBeenCalledWith('lock:ack', {
+      entityType: 'node',
+      entityId: 42,
+      userId: 10,
+      color: '#123456',
+    });
+    expect(socket.to).toHaveBeenCalledWith('name:Model A');
     expect(roomBroadcast.emit).toHaveBeenCalledWith('lock:acquired', {
       entityType: 'node',
-      entityId: '42',
+      entityId: 42,
       userId: 10,
       color: '#123456',
     });
@@ -264,18 +270,63 @@ describe('collab/socket unit', () => {
 
     expect(releaseLock).toHaveBeenCalledWith({
       entityType: 'edge',
-      entityId: '777',
+      entityId: 777,
       modelName: 'Model D',
       userId: 40,
     });
 
     expect(roomBroadcast.emit).toHaveBeenCalledWith('lock:released', {
       entityType: 'edge',
-      entityId: '777',
+      entityId: 777,
     });
   });
 
-  it('disconnecting releases all locks and broadcasts each release by modelName', async () => {
+  it('lock:refresh re-acquires the lock and acknowledges the sender', async () => {
+    const { io, connect } = createIo();
+    const { socket, trigger } = createSocket({
+      uid: 41,
+      email: 'u41@test.com',
+      role: 'Editor',
+    });
+
+    (getRoom as jest.Mock).mockReturnValue({
+      users: new Map([['41', { userId: 41, color: '#00aa00' }]]),
+      socketIdByUserId: new Map([['41', 'socket-1']]),
+    });
+    (getUserColor as jest.Mock).mockReturnValue('#00aa00');
+    (acquireLock as jest.Mock).mockResolvedValue({ success: true });
+
+    socket.rooms.add('name:Model Refresh');
+
+    registerCollabHandlers(io as any);
+    connect(socket as any);
+
+    trigger('lock:refresh', {
+      entityType: 'node',
+      entityId: '900',
+      modelName: 'Model Refresh',
+    });
+
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(acquireLock).toHaveBeenCalledWith({
+      entityType: 'node',
+      entityId: 900,
+      modelName: 'Model Refresh',
+      modelId: undefined,
+      userId: 41,
+    });
+
+    expect(socket.emit).toHaveBeenCalledWith('lock:ack', {
+      entityType: 'node',
+      entityId: 900,
+      userId: 41,
+      color: '#00aa00',
+    });
+  });
+
+  it('disconnecting releases only locks for rooms actively owned by the socket', async () => {
     const { io, connect } = createIo();
     const { socket, trigger } = createSocket({
       uid: 50,
@@ -287,8 +338,7 @@ describe('collab/socket unit', () => {
     const roomY = { emit: jest.fn() };
 
     (releaseAllLocksForSocket as jest.Mock).mockResolvedValue([
-      { entityType: 'node', entityId: 1, modelName: 'Model X' },
-      { entityType: 'edge', entityId: 2, modelName: 'Model Y' },
+      { modelId: 501, entityType: 'node', entityId: 1, modelName: 'Model X' },
     ]);
 
     (leaveRoom as jest.Mock).mockResolvedValue(undefined);
@@ -300,6 +350,23 @@ describe('collab/socket unit', () => {
 
     socket.rooms.add('name:Model X');
     socket.rooms.add('name:Model Y');
+    (getRoom as jest.Mock).mockImplementation((roomKey: string) => {
+      if (roomKey === 'name:Model X') {
+        return {
+          modelName: 'Model X',
+          socketIdByUserId: new Map([['50', 'socket-1']]),
+        };
+      }
+
+      if (roomKey === 'name:Model Y') {
+        return {
+          modelName: 'Model Y',
+          socketIdByUserId: new Map([['50', 'socket-2']]),
+        };
+      }
+
+      return undefined;
+    });
 
     registerCollabHandlers(io as any);
     connect(socket as any);
@@ -309,17 +376,17 @@ describe('collab/socket unit', () => {
     await Promise.resolve();
     await Promise.resolve();
 
-    expect(releaseAllLocksForSocket).toHaveBeenCalledWith(50);
+    expect(releaseAllLocksForSocket).toHaveBeenCalledWith(50, {
+      modelIds: [],
+      modelNames: ['Model X'],
+    });
 
     expect(roomX.emit).toHaveBeenCalledWith('lock:released', {
       entityType: 'node',
       entityId: 1,
     });
 
-    expect(roomY.emit).toHaveBeenCalledWith('lock:released', {
-      entityType: 'edge',
-      entityId: 2,
-    });
+    expect(roomY.emit).not.toHaveBeenCalled();
   });
 
   it('room:join delegates to joinRoom and emits presence events', async () => {
