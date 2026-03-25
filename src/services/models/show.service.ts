@@ -50,18 +50,30 @@ export async function getModelByName(name: string): Promise<BMRGData | null> {
     const statesRes = await client.query(
       `SELECT s.id, s.state_name, s.eks_condition_estimate,
               s.condition_lower, s.condition_upper, s.ellictation_type,
-              v.vast_class, v.vast_name, v.eks_overstorey_class,
-              v.eks_understorey_class, v.eks_substate, v.link
+              s.vast_state_id,
+              v.id AS vast_id, v.vast_class, v.vast_name,
+              v.eks_overstorey_class, v.eks_understorey_class,
+              v.eks_substate, v.link
        FROM states s
        LEFT JOIN vast_states v ON s.vast_state_id = v.id
        WHERE s.stm_name = $1`,
       [name]
     );
 
+    // Map DB enum values (e.g. "ClassI") back to display format ("Class I")
+    const vastClassDisplayMap: Record<string, string> = {
+      ClassI: 'Class I',
+      ClassII: 'Class II',
+      ClassIII: 'Class III',
+      ClassIV: 'Class IV',
+      ClassV: 'Class V',
+      ClassVI: 'Class VI',
+    };
+
     const states: StateData[] = [];
     for (const s of statesRes.rows) {
       const attrsRes = await client.query(
-        `SELECT attribute_type, value, units
+        `SELECT id AS state_attribute_id, attribute_type, value, units
          FROM state_attributes
          WHERE state_id = $1`,
         [s.id]
@@ -71,7 +83,8 @@ export async function getModelByName(name: string): Promise<BMRGData | null> {
         state_id: s.id,
         state_name: s.state_name,
         vast_state: {
-          vast_class: s.vast_class,
+          vast_state_id: s.vast_state_id ?? undefined,
+          vast_class: vastClassDisplayMap[s.vast_class] ?? s.vast_class,
           vast_name: s.vast_name,
           vast_eks_state: s.eks_condition_estimate,
           eks_overstorey_class: s.eks_overstorey_class,

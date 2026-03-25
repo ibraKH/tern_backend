@@ -8,7 +8,7 @@ export type ContributionType = 'Author' | 'Reviewer';
 
 export interface VastState {
   vast_state_id?: number;              
-  vast_class?: 'ClassI'|'ClassII'|'ClassIII'|'ClassIV'|'ClassV'|'ClassVI';
+  vast_class?: string;
   vast_name?: string;
   vast_eks_state?: number | null;
   eks_overstorey_class?: string | null;
