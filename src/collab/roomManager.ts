@@ -38,6 +38,8 @@ function getOrCreateRoomByKey(roomKey: string, modelName?: string): RoomState {
 }
 
 function userKey(userId: number): string {
+  // Normalize numeric ids to string because room maps use string keys.
+  // A single normalization path prevents subtle misses like 42 vs "42".
   return String(userId);
 }
 
@@ -79,6 +81,9 @@ export async function joinRoom(
   }
 
   if (previous && previousSocketId && previousSocketId !== socket.id) {
+    // Reconnect path evicts the previous socket from the room.
+    // Keep the same presence record to avoid duplicate users.
+    // Preserve user color and identity across reconnect.
     const oldSocket = io.sockets.sockets.get(previousSocketId);
     await Promise.resolve(oldSocket?.leave(roomKey));
   }
@@ -86,6 +91,8 @@ export async function joinRoom(
   const onlineUser: OnlineUser = previous
     ? { ...previous, email: user.email }
     : {
+        // First join allocates the next available palette color.
+        // Existing users keep stable color across reconnects.
         userId: user.uid,
         email: user.email,
         color: pickNextColor(room),
@@ -116,6 +123,7 @@ export async function leaveRoom(_io: Server, socket: Socket, roomKey: string): P
   const activeSocketId = room.socketIdByUserId.get(key);
 
   // Prevent stale/replaced sockets from evicting the active presence entry.
+  // Only the currently tracked socket for this user can perform final removal.
   if (activeSocketId !== socket.id) {
     await Promise.resolve(socket.leave(roomKey));
     return undefined;

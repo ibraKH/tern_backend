@@ -42,6 +42,8 @@ function resolveRoomKey(payload: unknown): { roomKey: RoomKey; modelName?: strin
   const modelId = (payload as RoomLocatorPayload | undefined)?.modelId;
   const modelName = (payload as RoomLocatorPayload | undefined)?.modelName;
 
+  // Prefer modelId keys because ids stay stable even if model names change.
+  // Keep modelName fallback for older or lightweight clients.
   if (isFiniteInteger(modelId) && modelId > 0) {
     return { roomKey: `model:${modelId}`, modelName: isNonEmptyString(modelName) ? modelName : undefined };
   }
@@ -79,6 +81,8 @@ export function registerCollabHandlers(io: Server): void {
       const existing = pending.get(key);
 
       if (existing) {
+        // Coalesce bursts in one throttle window and keep only the latest payload.
+        // This reduces network traffic while preserving final cursor/viewport state.
         existing.lastPayload = payload;
         existing.socketId = socketId;
         return;
@@ -157,6 +161,8 @@ export function registerCollabHandlers(io: Server): void {
       if (!user) return;
 
       const membership = isCurrentRoomSocket(roomKey, user.uid);
+      // Ignore stale or replaced sockets to prevent ghost updates after reconnect.
+      // This also guards tab duplication and leave/join race conditions.
       if (!membership) return;
 
       scheduleBroadcast(
@@ -193,6 +199,8 @@ export function registerCollabHandlers(io: Server): void {
       if (!user) return;
 
       const membership = isCurrentRoomSocket(roomKey, user.uid);
+      // Ignore stale or replaced sockets to prevent ghost updates after reconnect.
+      // This also guards tab duplication and leave/join race conditions.
       if (!membership) return;
 
       scheduleBroadcast(
@@ -220,6 +228,7 @@ export function registerCollabHandlers(io: Server): void {
         }
 
         // Cleanup pending throttled broadcasts for this socket/user.
+        // Without cleanup, a queued timer might still emit shortly after disconnect.
         const currentUser = getSocketUser(socket);
         if (currentUser) {
           for (const roomKey of rooms) {

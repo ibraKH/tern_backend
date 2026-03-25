@@ -18,6 +18,8 @@ function extractTokenFromAuthorizationHeader(header: string | string[] | undefin
 }
 
 function extractToken(socket: Socket): string | undefined {
+  // Prefer handshake.auth.token because most Socket.IO clients send credentials there.
+  // Keep Authorization fallback so proxies and REST-style callers remain compatible.
   const authToken = (socket.handshake.auth as Record<string, unknown> | undefined)?.token;
   if (typeof authToken === 'string' && authToken.trim()) return authToken.trim();
 
@@ -41,6 +43,8 @@ export function socketAuthMiddleware(socket: Socket, next: (err?: Error) => void
   try {
     const payload = verifyToken(token) as JwtPayload;
 
+    // Store minimal identity in socket.data to avoid re-verifying JWT per event.
+    // Keep fields aligned with REST authorization context only.
     const user: SocketAuthedUser = {
       uid: payload.uid,
       email: payload.email,

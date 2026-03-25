@@ -21,6 +21,8 @@ export function initIo(server: HttpServer, frontendUrl: string): SocketIOServer 
     PRODUCTION_URL,
     ...(process.env.NODE_ENV !== 'production' ? ['http://localhost:5173', 'http://localhost:3000'] : []),
   ].filter((value): value is string => Boolean(value));
+  // Keep WS origin policy aligned with HTTP CORS policy.
+  // This avoids cases where REST succeeds but Socket.IO handshake fails due to a divergent allowlist.
 
   ioInstance = new SocketIOServer(server, {
     cors: {
@@ -57,6 +59,8 @@ export function getIo(): SocketIOServer {
 // Accessing properties before initIo() will throw a descriptive error.
 export const io: SocketIOServer = new Proxy({} as SocketIOServer, {
   get(_target, prop) {
+    // Resolve against the real instance lazily so imports can reference io before bootstrap.
+    // Access still fails fast with a clear error when initIo has not run.
     const real = getIo();
     const value = (real as any)[prop];
     return typeof value === 'function' ? value.bind(real) : value;

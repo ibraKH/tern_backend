@@ -10,7 +10,10 @@ const PORT = process.env.PORT || 3000;
 const frontendUrl = FRONTEND_URL;
 
 const server = http.createServer(app);
+// Bind Socket.IO to the same HTTP server so REST and WS share one port.
+// This keeps deployment surface and shutdown lifecycle unified.
 const io = initIo(server, frontendUrl);
+// Apply JWT auth before event registration so every collab handler sees socket.data.user.
 io.use(socketAuthMiddleware);
 registerCollabHandlers(io);
 

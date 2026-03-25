@@ -40,6 +40,8 @@ app.use(helmet({
 }));
 
 const frontendUrl = FRONTEND_URL;
+// Reuse env-derived allowlist so HTTP and WebSocket origin rules stay consistent.
+// Keeping one source prevents drift between Express CORS and Socket.IO CORS.
 const allowedOrigins = Array.from(CORS_ALLOWED_ORIGINS);
 
 app.use(cors({
@@ -71,6 +73,8 @@ app.use(errorHandler);
 
 // 404 handler
 app.use((req: Request, res: Response) => {
+  // Keep SPA fallback on frontend host for unknown backend routes.
+  // Backend stays API-focused while frontend handles not-found UX.
   res.redirect(`${frontendUrl}/notfound`);
 });
 
