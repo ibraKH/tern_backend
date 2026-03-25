@@ -84,29 +84,32 @@ describe('socket integration - lock handlers', () => {
     });
   }
 
-  it('lock:acquire broadcasts lock:acquired to room members', async () => {
+  it('lock:acquire acknowledges the sender and broadcasts to room members', async () => {
     (acquireLock as jest.Mock).mockResolvedValue({ success: true });
 
+    const modelId = Date.now();
     const modelName = `model-${Date.now()}-lock-acquire`;
     const s1 = await connectClient(2001, 'u2001@test.com');
     const s2 = await connectClient(2002, 'u2002@test.com');
 
     const s1SyncP = once<PresenceSync>(s1, 'presence:sync');
-    s1.emit('room:join', { modelName });
+    s1.emit('room:join', { modelId, modelName });
     await s1SyncP;
 
     const s2SyncP = once<PresenceSync>(s2, 'presence:sync');
-    s2.emit('room:join', { modelName });
+    s2.emit('room:join', { modelId, modelName });
     await s2SyncP;
 
-    let senderReceived = false;
-    s1.on('lock:acquired', () => {
-      senderReceived = true;
-    });
+    const ackP = once<{
+      entityType: 'node' | 'edge';
+      entityId: number;
+      userId: number;
+      color: string;
+    }>(s1, 'lock:ack');
 
     const broadcastP = once<{
       entityType: 'node' | 'edge';
-      entityId: string | number;
+      entityId: number;
       userId: number;
       color: string;
     }>(s2, 'lock:acquired');
@@ -114,23 +117,24 @@ describe('socket integration - lock handlers', () => {
     s1.emit('lock:acquire', {
       entityType: 'node',
       entityId: '501',
-      modelName,
+      modelId,
     });
 
-    const received = await broadcastP;
+    const [ack, received] = await Promise.all([ackP, broadcastP]);
 
+    expect(ack.entityType).toBe('node');
+    expect(ack.entityId).toBe(501);
+    expect(ack.userId).toBe(2001);
     expect(received.entityType).toBe('node');
-    expect(received.entityId).toBe('501');
+    expect(received.entityId).toBe(501);
     expect(received.userId).toBe(2001);
     expect(typeof received.color).toBe('string');
 
-    await delay(50);
-    expect(senderReceived).toBe(false);
-
     expect(acquireLock).toHaveBeenCalledWith({
       entityType: 'node',
-      entityId: '501',
-      modelName,
+      entityId: 501,
+      modelId,
+      modelName: undefined,
       userId: 2001,
     });
 
@@ -221,12 +225,12 @@ describe('socket integration - lock handlers', () => {
 
     expect(released).toEqual({
       entityType: 'node',
-      entityId: '808',
+      entityId: 808,
     });
 
     expect(releaseLock).toHaveBeenCalledWith({
       entityType: 'node',
-      entityId: '808',
+      entityId: 808,
       modelName,
       userId: 2201,
     });
@@ -235,10 +239,52 @@ describe('socket integration - lock handlers', () => {
     s2.close();
   });
 
+  it('lock:refresh renews the sender lock without broadcasting to other clients', async () => {
+    (acquireLock as jest.Mock).mockResolvedValue({ success: true });
+
+    const modelName = `model-${Date.now()}-lock-refresh`;
+    const s1 = await connectClient(2251, 'u2251@test.com');
+    const s2 = await connectClient(2252, 'u2252@test.com');
+
+    const s1SyncP = once<PresenceSync>(s1, 'presence:sync');
+    s1.emit('room:join', { modelName });
+    await s1SyncP;
+
+    const s2SyncP = once<PresenceSync>(s2, 'presence:sync');
+    s2.emit('room:join', { modelName });
+    await s2SyncP;
+
+    const ackP = once<{ entityType: 'node' | 'edge'; entityId: number; userId: number }>(s1, 'lock:ack');
+    let watcherBroadcasts = 0;
+    s2.on('lock:acquired', () => {
+      watcherBroadcasts++;
+    });
+
+    s1.emit('lock:refresh', {
+      entityType: 'edge',
+      entityId: '901',
+      modelName,
+    });
+
+    const ack = await ackP;
+
+    expect(ack).toEqual({
+      entityType: 'edge',
+      entityId: 901,
+      userId: 2251,
+      color: expect.any(String),
+    });
+
+    await delay(50);
+    expect(watcherBroadcasts).toBe(0);
+
+    s1.close();
+    s2.close();
+  });
+
   it('disconnecting releases all locks and broadcasts each lock:released', async () => {
     (releaseAllLocksForSocket as jest.Mock).mockResolvedValue([
-      { entityType: 'node', entityId: 1, modelName: 'Model-A' },
-      { entityType: 'edge', entityId: 2, modelName: 'Model-B' },
+      { modelId: 1, entityType: 'node', entityId: 1, modelName: 'Model-A' },
     ]);
 
     const sOwner = await connectClient(2301, 'u2301@test.com');
@@ -246,32 +292,39 @@ describe('socket integration - lock handlers', () => {
     const sWatcherB = await connectClient(2303, 'u2303@test.com');
 
     const ownerSyncA = once<PresenceSync>(sOwner, 'presence:sync');
-    sOwner.emit('room:join', { modelName: 'Model-A' });
+    sOwner.emit('room:join', { modelId: 1, modelName: 'Model-A' });
     await ownerSyncA;
 
     const ownerSyncB = once<PresenceSync>(sOwner, 'presence:sync');
-    sOwner.emit('room:join', { modelName: 'Model-B' });
+    sOwner.emit('room:join', { modelId: 2, modelName: 'Model-B' });
     await ownerSyncB;
 
     const watcherASync = once<PresenceSync>(sWatcherA, 'presence:sync');
-    sWatcherA.emit('room:join', { modelName: 'Model-A' });
+    sWatcherA.emit('room:join', { modelId: 1, modelName: 'Model-A' });
     await watcherASync;
 
     const watcherBSync = once<PresenceSync>(sWatcherB, 'presence:sync');
-    sWatcherB.emit('room:join', { modelName: 'Model-B' });
+    sWatcherB.emit('room:join', { modelId: 2, modelName: 'Model-B' });
     await watcherBSync;
 
     const releaseAP = once<{ entityType: 'node' | 'edge'; entityId: number }>(sWatcherA, 'lock:released');
-    const releaseBP = once<{ entityType: 'node' | 'edge'; entityId: number }>(sWatcherB, 'lock:released');
+    let releaseBCount = 0;
+    sWatcherB.on('lock:released', () => {
+      releaseBCount++;
+    });
 
     sOwner.close();
 
-    const [releaseA, releaseB] = await Promise.all([releaseAP, releaseBP]);
+    const releaseA = await releaseAP;
 
     expect(releaseA).toEqual({ entityType: 'node', entityId: 1 });
-    expect(releaseB).toEqual({ entityType: 'edge', entityId: 2 });
 
-    expect(releaseAllLocksForSocket).toHaveBeenCalledWith(2301);
+    await delay(50);
+    expect(releaseBCount).toBe(0);
+    expect(releaseAllLocksForSocket).toHaveBeenCalledWith(2301, {
+      modelIds: [1, 2],
+      modelNames: ['Model-A', 'Model-B'],
+    });
 
     sWatcherA.close();
     sWatcherB.close();
