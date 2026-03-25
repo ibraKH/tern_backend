@@ -7,6 +7,8 @@ import { swaggerSpec } from "./swagger/swagger";
 
 import authRoutes from './routes/auth';
 import modelsRoutes from './routes/models';
+import collabRoutes from './routes/collab';
+import locksRoutes from './routes/locks';
 import { requireAuth } from "./middlewares/auth.middleware";
 import { errorHandler } from "./middlewares/error.middleware";
 import { requestId } from "./middlewares/requestId.middleware";
@@ -65,8 +67,10 @@ app.use(express.json());
 app.use("/docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 // Routes
-app.use('/auth', authRoutes);     
+app.use('/auth', authRoutes);
 app.use('/models', requireAuth, modelsRoutes);
+app.use('/models', requireAuth, locksRoutes);
+app.use('/collab', collabRoutes);
 app.get("/openapi.json", (_req, res) => res.json(swaggerSpec));
 
 // Error handling middleware

@@ -6,6 +6,11 @@ import { removeModelByName,removeState,removeTransitionByBusinessId } from '../s
 import { requireRole } from '../middlewares/role.middleware';
 import { getAllModelsSchema, getModelByNameSchema } from '../validation/models.validation';
 import { validate } from '../validation/validate';
+import { logActivity } from '../services/collab/activity.service';
+import { broadcastActivity } from '../collab/roomManager';
+import { io } from '../socket';
+
+type AuthedRequest = Request & { user?: { id: number; email: string; role: string } };
 import { limitModelsRead, limitModelsWrite } from '../middlewares/rateLimit';
 
 const models = express.Router();
@@ -475,6 +480,20 @@ models.post('/save', limitModelsWrite, requireRole(["Admin", "Editor"]), async (
   try {
     const modelId = await saveModel(req.body);
     res.status(201).json({ success: true, modelId });
+
+    // Fire-and-forget activity logging after successful save.
+    const user = (req as AuthedRequest).user;
+    const stmName = req.body?.stm_name as string | undefined;
+    if (user && stmName) {
+      const roomKey = `name:${stmName}`;
+      const entry = {
+        id: 0, action: 'model_saved', entityType: null, entityId: null,
+        detail: { modelId }, createdAt: new Date().toISOString(),
+        user: { id: user.id, email: user.email },
+      };
+      void logActivity({ modelName: stmName, userId: user.id, action: 'model_saved', detail: { modelId } });
+      try { broadcastActivity(io, roomKey, entry); } catch { /* Socket.IO may not be initialized in tests */ }
+    }
   } catch (error : unknown) {
     res.status(500).json({ message: 'Error saving model', error });
   }
@@ -540,6 +559,13 @@ models.post('/save', limitModelsWrite, requireRole(["Admin", "Editor"]), async (
 models.delete('/:name', limitModelsWrite, requireRole(["Admin"]), async (req: Request, res: Response) => {
   try {
     const { name } = req.params as { name: string };
+
+    // Log activity before delete (model will be gone after).
+    const user = (req as AuthedRequest).user;
+    if (user) {
+      void logActivity({ modelName: name, userId: user.id, action: 'model_deleted' });
+    }
+
     const r = await removeModelByName(name);
     res.json({ success: true, ...r });
   } catch (error: unknown) {
@@ -613,6 +639,18 @@ models.delete('/:name/states/:stateId', limitModelsWrite, requireRole(["Admin", 
     const { name, stateId } = req.params as { name: string; stateId: string };
     await removeState(name, Number(stateId));
     res.json({ success: true });
+
+    const user = (req as AuthedRequest).user;
+    if (user) {
+      const roomKey = `name:${name}`;
+      void logActivity({ modelName: name, userId: user.id, action: 'node_deleted', entityType: 'node', entityId: Number(stateId) });
+      try {
+        broadcastActivity(io, roomKey, {
+          id: 0, action: 'node_deleted', entityType: 'node', entityId: Number(stateId),
+          detail: null, createdAt: new Date().toISOString(), user: { id: user.id, email: user.email },
+        });
+      } catch { /* no-op if io not initialized */ }
+    }
   } catch (error: unknown) {
     res.status(500).json({ message: 'Error removing state', error: String(error) });
   }
@@ -684,6 +722,18 @@ models.delete('/:name/transitions/:transitionId', limitModelsWrite, requireRole(
     const { name, transitionId } = req.params as { name: string; transitionId: string };
     await removeTransitionByBusinessId(name, Number(transitionId));
     res.json({ success: true });
+
+    const user = (req as AuthedRequest).user;
+    if (user) {
+      const roomKey = `name:${name}`;
+      void logActivity({ modelName: name, userId: user.id, action: 'edge_deleted', entityType: 'edge', entityId: Number(transitionId) });
+      try {
+        broadcastActivity(io, roomKey, {
+          id: 0, action: 'edge_deleted', entityType: 'edge', entityId: Number(transitionId),
+          detail: null, createdAt: new Date().toISOString(), user: { id: user.id, email: user.email },
+        });
+      } catch { /* no-op */ }
+    }
   } catch (error: unknown) {
     res.status(500).json({ message: 'Error removing transition', error: String(error) });
   }
