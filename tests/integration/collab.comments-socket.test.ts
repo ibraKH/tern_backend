@@ -13,7 +13,6 @@ import { socketAuthMiddleware } from '../../src/collab/auth.middleware';
 import { registerCollabHandlers } from '../../src/collab/socket';
 import { signToken } from '../../src/utils/jwt';
 import pool from '../../src/config/database';
-import { verifyToken } from '../../src/utils/jwt';
 
 describe('collab comment socket events', () => {
   let server: http.Server;
@@ -21,6 +20,8 @@ describe('collab comment socket events', () => {
   let frontendUrl: string;
   let ioServer: any;
   let closeIo: (() => Promise<void>) | undefined;
+  let nextCommentId: number;
+  let mentionDirectory: Record<string, { id: number; email: string }>;
 
   beforeAll((done) => {
     frontendUrl = process.env.FRONTEND_URL ?? 'http://localhost:5173';
@@ -51,7 +52,81 @@ describe('collab comment socket events', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    (verifyToken as jest.Mock).mockReturnValue({ uid: 1, email: 'admin@example.com', role: 'Editor' });
+    nextCommentId = 450;
+    mentionDirectory = {};
+
+    // createComment now uses pool.connect(); delegate client.query to the existing pool.query mock.
+    (pool.connect as jest.Mock).mockResolvedValue({
+      query: (text: string, values?: unknown[]) => (pool.query as jest.Mock)(text, values),
+      release: jest.fn(),
+    });
+
+    (pool.query as jest.Mock).mockImplementation(async (text: string, values?: unknown[]) => {
+      const sql = text.replace(/\s+/g, ' ').trim().toLowerCase();
+
+      if (sql.includes('from auth_users') && sql.includes('where id = $1')) {
+        const uid = Number((values ?? [])[0] ?? 1);
+        return {
+          rows: [{ id: uid, email: `user${uid}@test.com`, role: 'Editor', contributor_id: null }],
+        };
+      }
+
+      if (sql.includes('select id from stmmodel where stm_name = $1')) {
+        return { rows: [{ id: 123 }] };
+      }
+
+      if (sql.includes('insert into collab_comments')) {
+        const userId = Number((values ?? [])[1] ?? 0);
+        const entityType = ((values ?? [])[2] as 'node' | 'edge' | null | undefined) ?? null;
+        const entityId = ((values ?? [])[3] as number | null | undefined) ?? null;
+        const body = String((values ?? [])[4] ?? '');
+
+        return {
+          rows: [{
+            id: nextCommentId++,
+            model_id: 123,
+            user_id: userId,
+            entity_type: entityType,
+            entity_id: entityId,
+            body,
+            resolved: false,
+            resolved_at: null,
+            created_at: '2026-01-01T00:00:00Z',
+            updated_at: '2026-01-01T00:00:00Z',
+          }],
+        };
+      }
+
+      if (sql.includes('select id, email from auth_users where lower(email) = any($1)')) {
+        const emails = ((values ?? [])[0] as string[] | undefined) ?? [];
+        const rows = emails
+          .map((e) => String(e).toLowerCase())
+          .map((e) => mentionDirectory[e])
+          .filter((u): u is { id: number; email: string } => Boolean(u));
+
+        return { rows };
+      }
+
+      if (sql.includes('insert into collab_mentions')) {
+        return { rows: [] };
+      }
+
+      if (sql.includes('insert into collab_activity')) {
+        return { rows: [] };
+      }
+
+      if (sql.includes('select id from auth_users where lower(email) = $1 limit 1')) {
+        const email = String((values ?? [])[0] ?? '').toLowerCase();
+        const user = mentionDirectory[email];
+        return { rows: user ? [{ id: user.id }] : [] };
+      }
+
+      if (sql.includes('select x, y from stmnode') || sql.includes('select x, y from stmedge')) {
+        return { rows: [{ x: 100, y: 200 }] };
+      }
+
+      return { rows: [] };
+    });
   });
 
   function connectClient(token: string): Promise<ClientSocket> {
@@ -102,28 +177,6 @@ describe('collab comment socket events', () => {
     const s1CommentP = once<any>(s1, 'comment:new');
     const s2CommentP = once<any>(s2, 'comment:new');
 
-    // Mock database queries for comment creation
-    (pool.query as jest.Mock)
-      // model lookup
-      .mockResolvedValueOnce({ rows: [{ id: 123 }] })
-      // insert comment
-      .mockResolvedValueOnce({
-        rows: [{
-          id: 456,
-          model_id: 123,
-          user_id: 101,
-          entity_type: null,
-          entity_id: null,
-          body: 'test comment',
-          resolved: false,
-          resolved_at: null,
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-01T00:00:00Z',
-        }],
-      })
-      // no mentions query
-      .mockResolvedValueOnce({ rows: [] });
-
     // Create comment via HTTP
     const res = await request(app)
       .post(`/collab/${modelName}/comments`)
@@ -163,29 +216,7 @@ describe('collab comment socket events', () => {
     // Set up listener for comment:mention on mentioned user's socket
     const mentionEventP = once<any>(sMentioned, 'comment:mention');
 
-    // Mock database queries
-    (pool.query as jest.Mock)
-      // model lookup
-      .mockResolvedValueOnce({ rows: [{ id: 123 }] })
-      // insert comment
-      .mockResolvedValueOnce({
-        rows: [{
-          id: 457,
-          model_id: 123,
-          user_id: 201,
-          entity_type: null,
-          entity_id: null,
-          body: 'hey @mentioned@test.com',
-          resolved: false,
-          resolved_at: null,
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-01T00:00:00Z',
-        }],
-      })
-      // user lookup for mention
-      .mockResolvedValueOnce({ rows: [{ id: 202, email: 'mentioned@test.com' }] })
-      // insert mention
-      .mockResolvedValueOnce({ rows: [] });
+    mentionDirectory['mentioned@test.com'] = { id: 202, email: 'mentioned@test.com' };
 
     // Create comment with mention
     const res = await request(app)
@@ -219,28 +250,6 @@ describe('collab comment socket events', () => {
     sAuthor.on('error:mention', () => {
       errorReceived = true;
     });
-
-    // Mock database queries - offline user mentioned
-    (pool.query as jest.Mock)
-      // model lookup
-      .mockResolvedValueOnce({ rows: [{ id: 123 }] })
-      // insert comment
-      .mockResolvedValueOnce({
-        rows: [{
-          id: 458,
-          model_id: 123,
-          user_id: 301,
-          entity_type: null,
-          entity_id: null,
-          body: 'hey @offline@test.com',
-          resolved: false,
-          resolved_at: null,
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-01T00:00:00Z',
-        }],
-      })
-      // user lookup returns no results (offline or doesn't exist)
-      .mockResolvedValueOnce({ rows: [] });
 
     // Create comment with mention to offline user
     const res = await request(app)
@@ -374,25 +383,6 @@ describe('collab comment socket events', () => {
     await join2;
 
     const commentP = once<any>(s2, 'comment:new');
-
-    // Mock database queries for comment with no mentions
-    (pool.query as jest.Mock)
-      .mockResolvedValueOnce({ rows: [{ id: 123 }] }) // model lookup
-      .mockResolvedValueOnce({
-        rows: [{
-          id: 459,
-          model_id: 123,
-          user_id: 701,
-          entity_type: null,
-          entity_id: null,
-          body: 'comment without mentions',
-          resolved: false,
-          resolved_at: null,
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-01T00:00:00Z',
-        }],
-      }) // insert comment
-      .mockResolvedValueOnce({ rows: [] }); // no mentions
 
     const res = await request(app)
       .post(`/collab/${modelName}/comments`)
