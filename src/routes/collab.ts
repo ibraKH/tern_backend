@@ -12,6 +12,7 @@ import {
 import { createCommentSchema } from '../validation/collab.schemas';
 import { getIo } from '../socket';
 import { getSocketIdsByUserId } from '../collab/roomManager';
+import pool from '../config/database';
 
 const collab = express.Router();
 
@@ -126,37 +127,28 @@ collab.post(
       // Send comment:mention events to mentioned users (if online)
       if (comment.mentions && comment.mentions.length > 0) {
         for (const mentionedEmail of comment.mentions) {
-          // Query to get user ID from email
-          // This is already done in createComment, so mentions are user emails
-          // But we need the user ID to find their sockets
-          // We need to enhance this - for now we'll lookup by email
+          try {
+            const userRes = await pool.query<{ id: number }>(
+              'SELECT id FROM auth_users WHERE LOWER(email) = $1 LIMIT 1',
+              [mentionedEmail.toLowerCase()]
+            );
 
-          // Note: In a real implementation, we'd get user IDs from the DB query in createComment
-          // For now, we query the DB here to get the user ID
-          await (async () => {
-            try {
-              const pool = require('../config/database').default;
-              const userRes = await pool.query<{ id: number }>(
-                'SELECT id FROM auth_users WHERE LOWER(email) = $1 LIMIT 1',
-                [mentionedEmail.toLowerCase()]
-              );
+            const userRows = userRes?.rows ?? [];
+            if (userRows.length === 0) continue;
 
-              if (userRes.rows.length === 0) return; // User not found
+            const mentionedUserId = userRows[0].id;
+            const mentionedSocketIds = getSocketIdsByUserId(io, mentionedUserId);
 
-              const mentionedUserId = userRes.rows[0].id;
-              const mentionedSocketIds = getSocketIdsByUserId(io, mentionedUserId);
-
-              // Emit comment:mention to each of their connected sockets
-              for (const socketId of mentionedSocketIds) {
-                io.to(socketId).emit('comment:mention', {
-                  comment,
-                  modelName: modelName.trim(),
-                });
-              }
-            } catch (err) {
-              console.error('[collab] Failed to send mention notification:', err);
+            // Emit comment:mention to each of their connected sockets
+            for (const socketId of mentionedSocketIds) {
+              io.to(socketId).emit('comment:mention', {
+                comment,
+                modelName: modelName.trim(),
+              });
             }
-          })();
+          } catch (err) {
+            console.error('[collab] Failed to send mention notification:', err);
+          }
         }
       }
 
