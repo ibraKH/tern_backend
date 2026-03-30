@@ -17,15 +17,6 @@ const COLOR_PALETTE = [
   '#EC4899',
 ] as const;
 
-function getOrCreateRoom(modelName: string): RoomState {
-  const existing = rooms.get(modelName);
-  if (existing) return existing;
-
-  const room: RoomState = { roomKey: modelName, modelName: undefined, users: new Map(), socketIdByUserId: new Map() };
-  rooms.set(modelName, room);
-  return room;
-}
-
 function getOrCreateRoomByKey(roomKey: string, modelName?: string): RoomState {
   const existing = rooms.get(roomKey);
   if (existing) {

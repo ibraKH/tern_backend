@@ -68,14 +68,19 @@ describe('socket.io bootstrap', () => {
 
     const token = signToken({ uid: 1, email: 'a@b.com', role: 'Editor' });
 
-    await connect(url, {
-      auth: { token },
-      extraHeaders: { Origin: frontendUrl },
-    });
+    // Both connection styles should resolve without throwing.
+    await expect(
+      connect(url, {
+        auth: { token },
+        extraHeaders: { Origin: frontendUrl },
+      })
+    ).resolves.toBeUndefined();
 
-    await connect(url, {
-      extraHeaders: { Origin: frontendUrl, Authorization: `Bearer ${token}` },
-    });
+    await expect(
+      connect(url, {
+        extraHeaders: { Origin: frontendUrl, Authorization: `Bearer ${token}` },
+      })
+    ).resolves.toBeUndefined();
   });
 
   it('rejects socket with no token', async () => {

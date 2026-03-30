@@ -1,7 +1,7 @@
 import type { Server, Socket } from 'socket.io';
 
 import { acquireLock, releaseAllLocksForSocket, releaseLock } from '../services/collab/locks.service';
-import { getRoom, getUserColor, joinRoom, leaveRoom, getSocketIdsByUserId } from './roomManager';
+import { getRoom, getUserColor, joinRoom, leaveRoom } from './roomManager';
 import type { SocketAuthedUser } from './auth.middleware';
 import { getRecentActivity } from '../services/collab/activity.service';
 import { getEntityCoordinates } from '../services/collab/comments.service';

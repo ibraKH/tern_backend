@@ -18,7 +18,7 @@ export interface CommentResult {
   mentions: string[];
 }
 
-const EMAIL_MENTION_REGEX = /\@([\w.+-]+@[\w-]+\.[\w.]+)/g;
+const EMAIL_MENTION_REGEX = /@([\w.+-]+@[\w-]+\.[\w.]+)/g;
 
 export interface CreateCommentParams {
   modelName: string;

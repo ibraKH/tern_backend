@@ -1,4 +1,4 @@
-import express, { Request, Response } from 'express';
+import express, { type Request, type Response } from 'express';
 import { requireAuth } from '../middlewares/auth.middleware';
 import { validate } from '../validation/validate';
 import { getRecentActivity, logActivity } from '../services/collab/activity.service';
@@ -7,12 +7,16 @@ import {
   deleteComment,
   getComments,
   resolveComment,
-  type CommentResult,
 } from '../services/collab/comments.service';
 import { createCommentSchema } from '../validation/collab.schemas';
 import { getIo } from '../socket';
 import { getSocketIdsByUserId } from '../collab/roomManager';
 import pool from '../config/database';
+import { AppError } from '../errors';
+
+type AuthedRequest = Request & {
+  user: { id: number; email: string; role: 'Admin' | 'Editor' | 'Viewer'; contributor_id: number | null };
+};
 
 const collab = express.Router();
 
@@ -86,7 +90,7 @@ collab.post(
   async (req: Request, res: Response) => {
     const { modelName } = req.params as { modelName: string };
     const { body, entityType, entityId } = req.body as { body: string; entityType?: 'node' | 'edge' | null; entityId?: number | null };
-    const user = (req as any).user;
+    const user = (req as AuthedRequest).user;
 
     if (!user) {
       return res.status(401).json({ error: 'Missing authenticated user' });
@@ -152,8 +156,8 @@ collab.post(
       return res.status(201).json({ comment });
     } catch (err) {
       console.error('[collab] POST create comment failed:', err);
-      if (err instanceof Error && (err as any).status) {
-        return res.status((err as any).status).json({ error: (err as any).message });
+      if (err instanceof AppError) {
+        return res.status(err.status).json({ error: err.message });
       }
       return res.status(500).json({ error: 'Failed to create comment' });
     }
@@ -169,7 +173,7 @@ collab.patch(
   requireAuth,
   async (req: Request, res: Response) => {
     const { id } = req.params as { id: string };
-    const user = (req as any).user;
+    const user = (req as AuthedRequest).user;
 
     if (!user) {
       return res.status(401).json({ error: 'Missing authenticated user' });
@@ -180,8 +184,8 @@ collab.patch(
       return res.json({ comment: updated });
     } catch (err) {
       console.error('[collab] PATCH resolve comment failed:', err);
-      if (err instanceof Error && (err as any).status) {
-        return res.status((err as any).status).json({ error: (err as any).message });
+      if (err instanceof AppError) {
+        return res.status(err.status).json({ error: err.message });
       }
       return res.status(500).json({ error: 'Failed to resolve comment' });
     }
@@ -197,7 +201,7 @@ collab.delete(
   requireAuth,
   async (req: Request, res: Response) => {
     const { id } = req.params as { id: string };
-    const user = (req as any).user;
+    const user = (req as AuthedRequest).user;
 
     if (!user) {
       return res.status(401).json({ error: 'Missing authenticated user' });
@@ -208,8 +212,8 @@ collab.delete(
       return res.status(200).json({ success: true });
     } catch (err) {
       console.error('[collab] DELETE comment failed:', err);
-      if (err instanceof Error && (err as any).status) {
-        return res.status((err as any).status).json({ error: (err as any).message });
+      if (err instanceof AppError) {
+        return res.status(err.status).json({ error: err.message });
       }
       return res.status(500).json({ error: 'Failed to delete comment' });
     }

@@ -18,7 +18,7 @@ describe('collab comment socket events', () => {
   let server: http.Server;
   let port: number;
   let frontendUrl: string;
-  let ioServer: any;
+  let ioServer: ReturnType<typeof initIo>;
   let closeIo: (() => Promise<void>) | undefined;
   let nextCommentId: number;
   let mentionDirectory: Record<string, { id: number; email: string }>;
@@ -165,17 +165,17 @@ describe('collab comment socket events', () => {
     const s1 = await connectClient(token1);
     const s2 = await connectClient(token2);
 
-    const joinP1 = once<any>(s1, 'presence:sync');
+    const joinP1 = once<unknown>(s1, 'presence:sync');
     s1.emit('room:join', { modelName });
     await joinP1;
 
-    const joinP2 = once<any>(s2, 'presence:sync');
+    const joinP2 = once<unknown>(s2, 'presence:sync');
     s2.emit('room:join', { modelName });
     await joinP2;
 
     // Set up listeners for comment:new
-    const s1CommentP = once<any>(s1, 'comment:new');
-    const s2CommentP = once<any>(s2, 'comment:new');
+    const s1CommentP = once<{ comment: { body: string } }>(s1, 'comment:new');
+    const s2CommentP = once<{ comment: { body: string } }>(s2, 'comment:new');
 
     // Create comment via HTTP
     const res = await request(app)
@@ -205,16 +205,16 @@ describe('collab comment socket events', () => {
     const sAuthor = await connectClient(token1);
     const sMentioned = await connectClient(token2);
 
-    const joinAuthorP = once<any>(sAuthor, 'presence:sync');
+    const joinAuthorP = once<unknown>(sAuthor, 'presence:sync');
     sAuthor.emit('room:join', { modelName });
     await joinAuthorP;
 
-    const joinMentionedP = once<any>(sMentioned, 'presence:sync');
+    const joinMentionedP = once<unknown>(sMentioned, 'presence:sync');
     sMentioned.emit('room:join', { modelName });
     await joinMentionedP;
 
     // Set up listener for comment:mention on mentioned user's socket
-    const mentionEventP = once<any>(sMentioned, 'comment:mention');
+    const mentionEventP = once<{ comment: { body: string }; modelName: string }>(sMentioned, 'comment:mention');
 
     mentionDirectory['mentioned@test.com'] = { id: 202, email: 'mentioned@test.com' };
 
@@ -241,7 +241,7 @@ describe('collab comment socket events', () => {
 
     const sAuthor = await connectClient(token);
 
-    const joinP = once<any>(sAuthor, 'presence:sync');
+    const joinP = once<unknown>(sAuthor, 'presence:sync');
     sAuthor.emit('room:join', { modelName });
     await joinP;
 
@@ -274,16 +274,16 @@ describe('collab comment socket events', () => {
     const s1 = await connectClient(token1);
     const s2 = await connectClient(token2);
 
-    const join1P = once<any>(s1, 'presence:sync');
+    const join1P = once<unknown>(s1, 'presence:sync');
     s1.emit('room:join', { modelName });
     await join1P;
 
-    const join2P = once<any>(s2, 'presence:sync');
+    const join2P = once<unknown>(s2, 'presence:sync');
     s2.emit('room:join', { modelName });
     await join2P;
 
     // Set up listener for viewport:fly-to on s1
-    const flyToP = once<any>(s1, 'viewport:fly-to');
+    const flyToP = once<{ x: number; y: number }>(s1, 'viewport:fly-to');
 
     // Track if s2 receives the event (it shouldn't)
     let s2ReceeivedFlyTo = false;
@@ -319,7 +319,7 @@ describe('collab comment socket events', () => {
 
     const s = await connectClient(token);
 
-    const joinP = once<any>(s, 'presence:sync');
+    const joinP = once<unknown>(s, 'presence:sync');
     s.emit('room:join', { modelName });
     await joinP;
 
@@ -327,7 +327,7 @@ describe('collab comment socket events', () => {
     (pool.query as jest.Mock).mockResolvedValueOnce({ rows: [] });
 
     // Set up listener for error:not_found
-    const errorP = once<any>(s, 'error:not_found');
+    const errorP = once<{ message: string }>(s, 'error:not_found');
 
     s.emit('viewport:navigate-to', {
       modelName,
@@ -347,11 +347,11 @@ describe('collab comment socket events', () => {
 
     const s = await connectClient(token);
 
-    const joinP = once<any>(s, 'presence:sync');
+    const joinP = once<unknown>(s, 'presence:sync');
     s.emit('room:join', { modelName });
     await joinP;
 
-    const errorP = once<any>(s, 'error:validation');
+    const errorP = once<{ message: string }>(s, 'error:validation');
 
     // Send invalid payload (missing entityId)
     s.emit('viewport:navigate-to', {
@@ -374,15 +374,15 @@ describe('collab comment socket events', () => {
     const s1 = await connectClient(token1);
     const s2 = await connectClient(token2);
 
-    const join1 = once<any>(s1, 'presence:sync');
+    const join1 = once<unknown>(s1, 'presence:sync');
     s1.emit('room:join', { modelName });
     await join1;
 
-    const join2 = once<any>(s2, 'presence:sync');
+    const join2 = once<unknown>(s2, 'presence:sync');
     s2.emit('room:join', { modelName });
     await join2;
 
-    const commentP = once<any>(s2, 'comment:new');
+    const commentP = once<{ comment: { body: string } }>(s2, 'comment:new');
 
     const res = await request(app)
       .post(`/collab/${modelName}/comments`)

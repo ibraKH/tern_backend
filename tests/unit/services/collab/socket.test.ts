@@ -1,3 +1,4 @@
+import type { Server, Socket } from 'socket.io';
 import { registerCollabHandlers } from '../../../../src/collab/socket';
 import {
   acquireLock,
@@ -142,8 +143,8 @@ describe('collab/socket unit', () => {
 
     socket.rooms.add('name:Model A');
 
-    registerCollabHandlers(io as any);
-    connect(socket as any);
+    registerCollabHandlers(io as unknown as Server);
+    connect(socket as unknown as Socket);
 
     trigger('lock:acquire', {
       entityType: 'node',
@@ -195,8 +196,8 @@ describe('collab/socket unit', () => {
 
     socket.rooms.add('name:Model B');
 
-    registerCollabHandlers(io as any);
-    connect(socket as any);
+    registerCollabHandlers(io as unknown as Server);
+    connect(socket as unknown as Socket);
 
     trigger('lock:acquire', {
       entityType: 'edge',
@@ -222,8 +223,8 @@ describe('collab/socket unit', () => {
       role: 'Editor',
     });
 
-    registerCollabHandlers(io as any);
-    connect(socket as any);
+    registerCollabHandlers(io as unknown as Server);
+    connect(socket as unknown as Socket);
 
     trigger('lock:acquire', {
       entityType: 'node',
@@ -256,8 +257,8 @@ describe('collab/socket unit', () => {
 
     socket.rooms.add('name:Model D');
 
-    registerCollabHandlers(io as any);
-    connect(socket as any);
+    registerCollabHandlers(io as unknown as Server);
+    connect(socket as unknown as Socket);
 
     trigger('lock:release', {
       entityType: 'edge',
@@ -298,8 +299,8 @@ describe('collab/socket unit', () => {
 
     socket.rooms.add('name:Model Refresh');
 
-    registerCollabHandlers(io as any);
-    connect(socket as any);
+    registerCollabHandlers(io as unknown as Server);
+    connect(socket as unknown as Socket);
 
     trigger('lock:refresh', {
       entityType: 'node',
@@ -368,8 +369,8 @@ describe('collab/socket unit', () => {
       return undefined;
     });
 
-    registerCollabHandlers(io as any);
-    connect(socket as any);
+    registerCollabHandlers(io as unknown as Server);
+    connect(socket as unknown as Socket);
 
     trigger('disconnecting');
 
@@ -412,8 +413,8 @@ describe('collab/socket unit', () => {
     const roomEmitter = { emit: jest.fn() };
     socket.to = jest.fn(() => roomEmitter);
 
-    registerCollabHandlers(io as any);
-    connect(socket as any);
+    registerCollabHandlers(io as unknown as Server);
+    connect(socket as unknown as Socket);
 
     trigger('room:join', { modelName: 'Model Join' });
 
