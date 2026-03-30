@@ -35,6 +35,13 @@ type LockOwnerRow = {
   user_id: number;
 };
 
+type LockStatusRow = {
+  user_id: number;
+  active: boolean;
+};
+
+export type PatchLockFailureReason = 'lock_required' | 'lock_expired' | 'not_owner';
+
 function validateEntityType(entityType: string): asserts entityType is EntityType {
   if (!['node', 'edge'].includes(entityType)) {
     throw new Error("entityType must be one of ['node', 'edge']");
@@ -267,4 +274,45 @@ export async function checkLockOwnership({
   );
 
   return result.rows.length > 0;
+}
+
+export async function getPatchLockFailureReason({
+  entityType,
+  entityId,
+  modelId,
+  modelName,
+  userId,
+}: LockArgs): Promise<PatchLockFailureReason> {
+  const validated = validateLockArgs({ entityType, entityId });
+  validatePositiveInteger(userId, 'userId');
+
+  const resolvedModel = await resolveModelReference({ modelId, modelName });
+
+  const result = await pool.query<LockStatusRow>(
+    `SELECT
+       user_id,
+       expires_at > NOW() AS active
+     FROM collab_locks
+     WHERE model_id = $1
+       AND entity_type = $2
+       AND entity_id = $3
+     LIMIT 1`,
+    [resolvedModel.modelId, entityType, validated.entityId]
+  );
+
+  const row = result.rows[0];
+
+  if (!row) {
+    return 'lock_required';
+  }
+
+  if (!row.active) {
+    return 'lock_expired';
+  }
+
+  if (row.user_id !== userId) {
+    return 'not_owner';
+  }
+
+  return 'lock_required';
 }
