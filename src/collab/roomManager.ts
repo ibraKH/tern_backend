@@ -2,6 +2,7 @@ import type { Server, Socket } from 'socket.io';
 
 import type { RoomState, OnlineUser } from './types';
 import type { SocketAuthedUser } from './auth.middleware';
+import type { ActivityEntry } from '../services/collab/activity.service';
 
 const rooms = new Map<string, RoomState>(); // key = roomKey
 
@@ -140,4 +141,11 @@ export function getUserColor(userId: number, roomKey: string): string | undefine
   const room = rooms.get(roomKey);
   if (!room) return undefined;
   return room.users.get(userKey(userId))?.color;
+}
+
+// Broadcast a new activity entry to all sockets in a collab room.
+// Called by features like comments, milestones, and model saves to push live updates.
+// The caller must pass the already-resolved room key (e.g. "name:foo" or "model:5").
+export function broadcastActivity(io: Server, roomKey: string, entry: ActivityEntry): void {
+  io.to(roomKey).emit('activity:new', { entry });
 }

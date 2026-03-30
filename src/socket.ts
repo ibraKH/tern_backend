@@ -58,11 +58,11 @@ export function getIo(): SocketIOServer {
 export const io: SocketIOServer = new Proxy({} as SocketIOServer, {
   get(_target, prop) {
     const real = getIo();
-    const value = (real as any)[prop];
-    return typeof value === 'function' ? value.bind(real) : value;
+    const value = (real as unknown as Record<string | symbol, unknown>)[prop];
+    return typeof value === 'function' ? (value as (...args: unknown[]) => unknown).bind(real) : value;
   },
   set(_target, prop, value) {
-    (getIo() as any)[prop] = value;
+    (getIo() as unknown as Record<string | symbol, unknown>)[prop] = value;
     return true;
   },
 }) as SocketIOServer;
