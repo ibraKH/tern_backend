@@ -162,7 +162,7 @@ describe('collab room lifecycle', () => {
 
     expect(sync2.users).toHaveLength(1);
     expect(sync2.users[0].userId).toBe(401);
-    expect((sync2.users[0] as any).socketId).toBeUndefined();
+    expect((sync2.users[0] as Record<string, unknown>).socketId).toBeUndefined();
 
     s1.close();
     s2.close();
