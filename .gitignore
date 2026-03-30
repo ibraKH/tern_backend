@@ -34,3 +34,5 @@ coverage/
 
 # Optional: Docker
 docker-data/
+
+.eslintcache
