@@ -1,4 +1,4 @@
-import express, { Request, Response } from 'express';
+import express, { type Request, type Response } from 'express';
 import { requireAuth } from '../middlewares/auth.middleware';
 import { getRecentActivity } from '../services/collab/activity.service';
 
