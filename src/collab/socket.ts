@@ -4,6 +4,7 @@ import { acquireLock, releaseAllLocksForSocket, releaseLock } from '../services/
 import { getRoom, getUserColor, joinRoom, leaveRoom, getSocketIdsByUserId } from './roomManager';
 import type { SocketAuthedUser } from './auth.middleware';
 import { getRecentActivity } from '../services/collab/activity.service';
+import { getEntityCoordinates } from '../services/collab/comments.service';
 import pool from '../config/database';
 
 export const COLLAB_THROTTLE_MS = 50 as const;
@@ -467,21 +468,16 @@ export function registerCollabHandlers(io: Server): void {
 
       void (async () => {
         try {
-          const query = entityType === 'node'
-            ? `SELECT x, y FROM stmnode WHERE id = $1`
-            : `SELECT x, y FROM stmedge WHERE id = $1`;
+          const coords = await getEntityCoordinates(entityType as 'node' | 'edge', entityId as number);
 
-          const result = await pool.query<{ x: number; y: number }>(query, [entityId]);
-
-          if (result.rows.length === 0) {
+          if (!coords) {
             socket.emit('error:not_found', {
               message: `${entityType} with id ${entityId} not found`,
             });
             return;
           }
 
-          const { x, y } = result.rows[0];
-          socket.emit('viewport:fly-to', { x, y });
+          socket.emit('viewport:fly-to', coords);
         } catch (err) {
           console.error('[collab] viewport:navigate-to failed:', err);
           socket.emit('error:not_found', {

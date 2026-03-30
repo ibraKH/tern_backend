@@ -1,5 +1,5 @@
 import pool from '../../config/database';
-import { AppError, ConflictError, ValidationError } from '../../errors';
+import { AppError, ConflictError } from '../../errors';
 
 export type CommentEntityType = 'node' | 'edge' | null;
 
@@ -31,17 +31,6 @@ export interface CreateCommentParams {
 
 export async function createComment(params: CreateCommentParams): Promise<CommentResult> {
   const { modelName, entityType, entityId, authorId, authorEmail, body } = params;
-
-  if (!body || typeof body !== 'string' || body.trim().length === 0) {
-    throw new ValidationError([{ section: 'body', path: 'body', message: 'body must be a non-empty string', code: 'too_small' }]);
-  }
-  if (body.length > 2000) {
-    throw new ValidationError([{ section: 'body', path: 'body', message: 'body must be 2000 characters or less', code: 'too_big' }]);
-  }
-
-  if (entityType !== null && entityType !== 'node' && entityType !== 'edge') {
-    throw new ValidationError([{ section: 'body', path: 'entityType', message: "entityType must be 'node', 'edge', or null", code: 'invalid_type' }]);
-  }
 
   const client = await pool.connect();
   try {
@@ -260,4 +249,16 @@ export async function deleteComment(
   );
 
   return { id: commentId };
+}
+
+export async function getEntityCoordinates(
+  entityType: 'node' | 'edge',
+  entityId: number
+): Promise<{ x: number; y: number } | null> {
+  const query = entityType === 'node'
+    ? `SELECT x, y FROM stmnode WHERE id = $1`
+    : `SELECT x, y FROM stmedge WHERE id = $1`;
+
+  const result = await pool.query<{ x: number; y: number }>(query, [entityId]);
+  return result.rows[0] ?? null;
 }

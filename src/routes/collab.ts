@@ -64,12 +64,9 @@ collab.get(
   requireAuth,
   async (req: Request, res: Response) => {
     const { modelName } = req.params as { modelName: string };
-    if (!modelName || modelName.trim().length === 0) {
-      return res.status(400).json({ error: 'modelName must be a non-empty string' });
-    }
 
     try {
-      const comments = await getComments(modelName.trim());
+      const comments = await getComments(modelName);
       return res.json({ comments });
     } catch (err) {
       console.error('[collab] GET comments failed:', err);
