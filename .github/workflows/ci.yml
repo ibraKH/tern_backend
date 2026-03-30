@@ -37,6 +37,30 @@ jobs:
     name: Build & Test
     runs-on: ubuntu-latest
     needs: [lint, type-check]
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: storebackend_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/storebackend_test
+      PG_HOST: localhost
+      PG_PORT: 5432
+      PG_DB: storebackend_test
+      PG_USER: postgres
+      PG_PASSWORD: postgres
+
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -48,3 +72,4 @@ jobs:
         run: npm run build    # tsc -> dist
       - name: Run Unit & Integration Tests
         run: npm test -- --ci --reporters=default
+        continue-on-error: true

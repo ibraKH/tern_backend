@@ -7,6 +7,36 @@ import { requireRole } from '../middlewares/role.middleware';
 import { getAllModelsSchema, getModelByNameSchema } from '../validation/models.validation';
 import { validate } from '../validation/validate';
 import { limitModelsRead, limitModelsWrite } from '../middlewares/rateLimit';
+import { logActivity } from '../services/collab/activity.service';
+import type { ActivityEntry } from '../services/collab/activity.service';
+import { io } from '../socket';
+
+// Fire-and-forget: log an activity entry and broadcast it to the collab room.
+// Errors are caught so a broadcast failure never breaks the HTTP response.
+function logAndBroadcast(
+  modelName: string,
+  userId: number,
+  action: string,
+  entityType?: string,
+  entityId?: number,
+): void {
+  void (async () => {
+    await logActivity({ modelName, userId, action, entityType, entityId });
+
+    const entry: ActivityEntry = {
+      id: 0,
+      action,
+      entityType: entityType ?? null,
+      entityId: entityId ?? null,
+      detail: null,
+      createdAt: new Date().toISOString(),
+      user: { id: userId, email: '' },
+    };
+    io.to(`name:${modelName}`).emit('activity:new', { entry });
+  })().catch((err) => {
+    console.error('[activity] logAndBroadcast failed:', err);
+  });
+}
 
 const models = express.Router();
 /**
@@ -473,8 +503,16 @@ models.get('/:name', limitModelsRead, requireRole(["Admin", "Editor", "Viewer"])
  */
 models.post('/save', limitModelsWrite, requireRole(["Admin", "Editor"]), async (req, res) => {
   try {
-    const modelId = await saveModel(req.body);
-    res.status(201).json({ success: true, modelId });
+    const result = await saveModel(req.body);
+    res.status(201).json({ success: true, modelId: result });
+
+    // Determine whether this was a create or update based on whether an id was provided.
+    const userId = (req as Request & { user?: { id: number } }).user?.id;
+    const modelName = req.body.stm_name as string | undefined;
+    if (userId && modelName) {
+      const action = req.body.id ? 'model_edited' : 'model_created';
+      logAndBroadcast(modelName, userId, action);
+    }
   } catch (error : unknown) {
     res.status(500).json({ message: 'Error saving model', error });
   }
@@ -542,6 +580,11 @@ models.delete('/:name', limitModelsWrite, requireRole(["Admin"]), async (req: Re
     const { name } = req.params as { name: string };
     const r = await removeModelByName(name);
     res.json({ success: true, ...r });
+
+    const userId = (req as Request & { user?: { id: number } }).user?.id;
+    if (userId) {
+      logAndBroadcast(name, userId, 'model_deleted');
+    }
   } catch (error: unknown) {
     res.status(500).json({ message: 'Error removing model', error: String(error) });
   }
@@ -613,6 +656,11 @@ models.delete('/:name/states/:stateId', limitModelsWrite, requireRole(["Admin", 
     const { name, stateId } = req.params as { name: string; stateId: string };
     await removeState(name, Number(stateId));
     res.json({ success: true });
+
+    const userId = (req as Request & { user?: { id: number } }).user?.id;
+    if (userId) {
+      logAndBroadcast(name, userId, 'state_deleted', 'state', Number(stateId));
+    }
   } catch (error: unknown) {
     res.status(500).json({ message: 'Error removing state', error: String(error) });
   }
@@ -684,6 +732,11 @@ models.delete('/:name/transitions/:transitionId', limitModelsWrite, requireRole(
     const { name, transitionId } = req.params as { name: string; transitionId: string };
     await removeTransitionByBusinessId(name, Number(transitionId));
     res.json({ success: true });
+
+    const userId = (req as Request & { user?: { id: number } }).user?.id;
+    if (userId) {
+      logAndBroadcast(name, userId, 'transition_deleted', 'transition', Number(transitionId));
+    }
   } catch (error: unknown) {
     res.status(500).json({ message: 'Error removing transition', error: String(error) });
   }
