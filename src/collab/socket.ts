@@ -1,6 +1,12 @@
 import type { Server, Socket } from 'socket.io';
 
-import { acquireLock, releaseAllLocksForSocket, releaseLock } from '../services/collab/locks.service';
+import {
+  acquireLock,
+  checkLockOwnership,
+  getPatchLockFailureReason,
+  releaseAllLocksForSocket,
+  releaseLock,
+} from '../services/collab/locks.service';
 import { getRoom, getUserColor, joinRoom, leaveRoom } from './roomManager';
 import type { SocketAuthedUser } from './auth.middleware';
 import { getRecentActivity } from '../services/collab/activity.service';
@@ -28,6 +34,13 @@ type LockPayload = {
   entityId: string | number;
   modelId?: number;
   modelName?: string;
+};
+type EntityPatchPayload = {
+  entityType: 'node' | 'edge';
+  entityId: string | number;
+  field: string;
+  value: unknown;
+  modelName: string;
 };
 
 type RoomKey = string;
@@ -92,6 +105,76 @@ function parseLockPayload(payload: unknown): LockPayload | { error: string } {
 
 function normalizeEntityId(entityId: string | number): number {
   return typeof entityId === 'number' ? entityId : Number.parseInt(entityId, 10);
+}
+
+function isJsonSerializable(value: unknown, seen = new Set<unknown>()): boolean {
+  if (value === undefined) return false;
+  if (value === null) return true;
+
+  const valueType = typeof value;
+  if (valueType === 'string' || valueType === 'number' || valueType === 'boolean') {
+    return true;
+  }
+
+  if (valueType === 'bigint' || valueType === 'function' || valueType === 'symbol') {
+    return false;
+  }
+
+  if (Array.isArray(value)) {
+    if (seen.has(value)) return false;
+    seen.add(value);
+    return value.every((item) => isJsonSerializable(item, seen));
+  }
+
+  if (valueType === 'object') {
+    if (seen.has(value)) return false;
+    seen.add(value);
+
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) {
+      return false;
+    }
+
+    return Object.values(value as Record<string, unknown>).every((item) => isJsonSerializable(item, seen));
+  }
+
+  return false;
+}
+
+function parseEntityPatchPayload(payload: unknown): EntityPatchPayload | { error: string } {
+  const entityType = (payload as Partial<EntityPatchPayload> | undefined)?.entityType;
+  const entityId = (payload as Partial<EntityPatchPayload> | undefined)?.entityId;
+  const field = (payload as Partial<EntityPatchPayload> | undefined)?.field;
+  const value = (payload as Partial<EntityPatchPayload> | undefined)?.value;
+  const modelName = (payload as Partial<EntityPatchPayload> | undefined)?.modelName;
+
+  if (entityType !== 'node' && entityType !== 'edge') {
+    return { error: "entityType must be one of ['node', 'edge']" };
+  }
+
+  if (!(isNonEmptyString(entityId) || (isFiniteInteger(entityId) && entityId > 0))) {
+    return { error: 'entityId must be a non-empty string or positive integer' };
+  }
+
+  if (!isNonEmptyString(field)) {
+    return { error: 'field must be a non-empty string' };
+  }
+
+  if (!isNonEmptyString(modelName)) {
+    return { error: 'modelName must be a non-empty string' };
+  }
+
+  if (!isJsonSerializable(value)) {
+    return { error: 'value must be JSON-serializable and cannot be undefined' };
+  }
+
+  return {
+    entityType,
+    entityId,
+    field,
+    value,
+    modelName,
+  };
 }
 
 function getModelIdFromRoomKey(roomKey: RoomKey): number | undefined {
@@ -444,6 +527,57 @@ export function registerCollabHandlers(io: Server): void {
         })
         .catch(() => {
           socket.emit('error:validation', { message: 'failed to refresh lock' });
+        });
+    });
+
+    socket.on('entity:patch', (payload: unknown) => {
+      const parsed = parseEntityPatchPayload(payload);
+      if ('error' in parsed) {
+        socket.emit('error:validation', { message: parsed.error });
+        return;
+      }
+
+      const roomKey = `name:${parsed.modelName}`;
+      const user = getSocketUser(socket);
+      if (!user) return;
+
+      const membership = isCurrentRoomSocket(roomKey, user.uid);
+      if (!membership) {
+        socket.emit('error:validation', { message: 'entity:patch requires joining the model room first' });
+        return;
+      }
+
+      const normalizedEntityId = normalizeEntityId(parsed.entityId);
+
+      void checkLockOwnership({
+        entityType: parsed.entityType,
+        entityId: normalizedEntityId,
+        modelName: parsed.modelName,
+        userId: user.uid,
+      })
+        .then(async (ownsLock) => {
+          if (!ownsLock) {
+            const reason = await getPatchLockFailureReason({
+              entityType: parsed.entityType,
+              entityId: normalizedEntityId,
+              modelName: parsed.modelName,
+              userId: user.uid,
+            });
+
+            socket.emit('error:patch', { reason });
+            return;
+          }
+
+          socket.to(roomKey).emit('entity:patch', {
+            entityType: parsed.entityType,
+            entityId: normalizedEntityId,
+            field: parsed.field,
+            value: parsed.value,
+            userId: user.uid,
+          });
+        })
+        .catch(() => {
+          socket.emit('error:validation', { message: 'failed to validate patch lock' });
         });
     });
 
