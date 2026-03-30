@@ -2,6 +2,8 @@ import type { Server, Socket } from 'socket.io';
 import { registerCollabHandlers } from '../../../../src/collab/socket';
 import {
   acquireLock,
+  checkLockOwnership,
+  getPatchLockFailureReason,
   releaseAllLocksForSocket,
   releaseLock,
 } from '../../../../src/services/collab/locks.service';
@@ -14,6 +16,8 @@ import {
 
 jest.mock('../../../../src/services/collab/locks.service', () => ({
   acquireLock: jest.fn(),
+  checkLockOwnership: jest.fn(),
+  getPatchLockFailureReason: jest.fn(),
   releaseLock: jest.fn(),
   releaseAllLocksForSocket: jest.fn(),
 }));
@@ -432,6 +436,189 @@ describe('collab/socket unit', () => {
     });
     expect(roomEmitter.emit).toHaveBeenCalledWith('presence:join', {
       user: { userId: 60, email: 'u60@test.com', color: '#abcdef' },
+    });
+  });
+
+  it('entity:patch broadcasts to room excluding sender when lock ownership is confirmed', async () => {
+    const { io, connect } = createIo();
+    const { socket, trigger } = createSocket({
+      uid: 70,
+      email: 'u70@test.com',
+      role: 'Editor',
+    });
+    const roomBroadcast = { emit: jest.fn() };
+
+    (getRoom as jest.Mock).mockReturnValue({
+      users: new Map([['70', { userId: 70, color: '#123123' }]]),
+      socketIdByUserId: new Map([['70', 'socket-1']]),
+    });
+    (checkLockOwnership as jest.Mock).mockResolvedValue(true);
+    socket.to = jest.fn(() => roomBroadcast);
+    socket.rooms.add('name:Model Patch');
+
+    registerCollabHandlers(io as unknown as Server);
+    connect(socket as unknown as Socket);
+
+    trigger('entity:patch', {
+      entityType: 'node',
+      entityId: '42',
+      field: 'label',
+      value: { text: 'next' },
+      modelName: 'Model Patch',
+    });
+
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(checkLockOwnership).toHaveBeenCalledWith({
+      entityType: 'node',
+      entityId: 42,
+      modelName: 'Model Patch',
+      userId: 70,
+    });
+    expect(socket.to).toHaveBeenCalledWith('name:Model Patch');
+    expect(roomBroadcast.emit).toHaveBeenCalledWith('entity:patch', {
+      entityType: 'node',
+      entityId: 42,
+      field: 'label',
+      value: { text: 'next' },
+      userId: 70,
+    });
+    expect(socket.emit).not.toHaveBeenCalledWith('entity:patch', expect.anything());
+  });
+
+  it('entity:patch emits lock_required when no lock is held', async () => {
+    const { io, connect } = createIo();
+    const { socket, trigger } = createSocket({
+      uid: 71,
+      email: 'u71@test.com',
+      role: 'Editor',
+    });
+
+    (getRoom as jest.Mock).mockReturnValue({
+      users: new Map([['71', { userId: 71, color: '#123123' }]]),
+      socketIdByUserId: new Map([['71', 'socket-1']]),
+    });
+    (checkLockOwnership as jest.Mock).mockResolvedValue(false);
+    (getPatchLockFailureReason as jest.Mock).mockResolvedValue('lock_required');
+    socket.rooms.add('name:Model Patch');
+
+    registerCollabHandlers(io as unknown as Server);
+    connect(socket as unknown as Socket);
+
+    trigger('entity:patch', {
+      entityType: 'edge',
+      entityId: 43,
+      field: 'guard',
+      value: 'x',
+      modelName: 'Model Patch',
+    });
+
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(socket.emit).toHaveBeenCalledWith('error:patch', {
+      reason: 'lock_required',
+    });
+  });
+
+  it('entity:patch emits not_owner and lock_expired reasons from lock service', async () => {
+    const { io, connect } = createIo();
+    const { socket, trigger } = createSocket({
+      uid: 72,
+      email: 'u72@test.com',
+      role: 'Editor',
+    });
+
+    (getRoom as jest.Mock).mockReturnValue({
+      users: new Map([['72', { userId: 72, color: '#123123' }]]),
+      socketIdByUserId: new Map([['72', 'socket-1']]),
+    });
+    (checkLockOwnership as jest.Mock).mockResolvedValue(false);
+    (getPatchLockFailureReason as jest.Mock)
+      .mockResolvedValueOnce('not_owner')
+      .mockResolvedValueOnce('lock_expired');
+    socket.rooms.add('name:Model Patch');
+
+    registerCollabHandlers(io as unknown as Server);
+    connect(socket as unknown as Socket);
+
+    trigger('entity:patch', {
+      entityType: 'node',
+      entityId: 44,
+      field: 'name',
+      value: 'v1',
+      modelName: 'Model Patch',
+    });
+
+    await Promise.resolve();
+    await Promise.resolve();
+
+    trigger('entity:patch', {
+      entityType: 'node',
+      entityId: 44,
+      field: 'name',
+      value: 'v2',
+      modelName: 'Model Patch',
+    });
+
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(socket.emit).toHaveBeenCalledWith('error:patch', { reason: 'not_owner' });
+    expect(socket.emit).toHaveBeenCalledWith('error:patch', { reason: 'lock_expired' });
+  });
+
+  it('entity:patch emits validation errors for missing field, undefined value, and missing room membership', () => {
+    const { io, connect } = createIo();
+    const { socket, trigger } = createSocket({
+      uid: 73,
+      email: 'u73@test.com',
+      role: 'Editor',
+    });
+
+    registerCollabHandlers(io as unknown as Server);
+    connect(socket as unknown as Socket);
+
+    trigger('entity:patch', {
+      entityType: 'node',
+      entityId: 45,
+      value: 'v1',
+      modelName: 'Model Patch',
+    });
+
+    expect(socket.emit).toHaveBeenCalledWith('error:validation', {
+      message: 'field must be a non-empty string',
+    });
+
+    trigger('entity:patch', {
+      entityType: 'node',
+      entityId: 45,
+      field: 'title',
+      value: 'v1',
+      modelName: 'Model Patch',
+    });
+
+    expect(socket.emit).toHaveBeenCalledWith('error:validation', {
+      message: 'entity:patch requires joining the model room first',
+    });
+
+    socket.rooms.add('name:Model Patch');
+    (getRoom as jest.Mock).mockReturnValue({
+      users: new Map([['73', { userId: 73, color: '#123123' }]]),
+      socketIdByUserId: new Map([['73', 'socket-1']]),
+    });
+
+    trigger('entity:patch', {
+      entityType: 'node',
+      entityId: 45,
+      field: 'title',
+      value: undefined,
+      modelName: 'Model Patch',
+    });
+
+    expect(socket.emit).toHaveBeenCalledWith('error:validation', {
+      message: 'value must be JSON-serializable and cannot be undefined',
     });
   });
 });
