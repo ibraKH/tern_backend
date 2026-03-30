@@ -1,5 +1,7 @@
 jest.mock('../../src/services/collab/locks.service', () => ({
   acquireLock: jest.fn(),
+  checkLockOwnership: jest.fn(),
+  getPatchLockFailureReason: jest.fn(),
   releaseLock: jest.fn(),
   releaseAllLocksForSocket: jest.fn(),
 }));
@@ -13,6 +15,8 @@ import { registerCollabHandlers } from '../../src/collab/socket';
 import { signToken } from '../../src/utils/jwt';
 import {
   acquireLock,
+  checkLockOwnership,
+  getPatchLockFailureReason,
   releaseAllLocksForSocket,
   releaseLock,
 } from '../../src/services/collab/locks.service';
@@ -323,10 +327,11 @@ describe('socket integration - lock handlers', () => {
     expect(releaseBCount).toBe(0);
     expect(releaseAllLocksForSocket).toHaveBeenCalledWith(2301, {
       modelIds: [1, 2],
-      modelNames: ['Model-A', 'Model-B'],
+      modelNames: [],
     });
 
     sWatcherA.close();
     sWatcherB.close();
   });
+
 });
