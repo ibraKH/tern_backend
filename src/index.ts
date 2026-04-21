@@ -5,7 +5,7 @@ import { FRONTEND_URL } from './config/env';
 import { initIo } from './socket';
 import { socketAuthMiddleware } from './collab/auth.middleware';
 import { registerCollabHandlers } from './collab/socket';
-import { startLockCleanupJob } from './collab/lockCleanup';
+import { startLockCleanupJob, stopLockCleanupJob } from './collab/lockCleanup';
 
 const PORT = process.env.PORT || 3000;
 
@@ -25,5 +25,6 @@ server.listen(PORT, () => {
 
 // Clean shutdown.
 process.on('SIGTERM', () => {
+  stopLockCleanupJob();
   server.close();
 });
