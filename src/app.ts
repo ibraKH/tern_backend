@@ -9,6 +9,7 @@ import authRoutes from './routes/auth';
 import modelsRoutes from './routes/models';
 import collabRoutes from './routes/collab';
 import locksRoutes from './routes/locks';
+import driversRoutes from './routes/drivers';
 import { requireAuth } from "./middlewares/auth.middleware";
 import { errorHandler } from "./middlewares/error.middleware";
 import { requestId } from "./middlewares/requestId.middleware";
@@ -70,6 +71,7 @@ app.use("/docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 app.use('/auth', authRoutes);
 app.use('/models', requireAuth, modelsRoutes);
 app.use('/models', requireAuth, locksRoutes);
+app.use('/drivers', requireAuth, driversRoutes);
 app.use('/collab', collabRoutes);
 app.get("/openapi.json", (_req, res) => res.json(swaggerSpec));
 
