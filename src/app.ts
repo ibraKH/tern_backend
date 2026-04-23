@@ -63,7 +63,7 @@ app.use(cors({
   exposedHeaders: ['X-Request-ID'],
 }));
 
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
 app.use("/docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 // Routes
