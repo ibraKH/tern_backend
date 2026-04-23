@@ -10,6 +10,7 @@ import modelsRoutes from './routes/models';
 import collabRoutes from './routes/collab';
 import locksRoutes from './routes/locks';
 import driversRoutes from './routes/drivers';
+import notificationsRoutes from './routes/notifications';
 import { requireAuth } from "./middlewares/auth.middleware";
 import { errorHandler } from "./middlewares/error.middleware";
 import { requestId } from "./middlewares/requestId.middleware";
@@ -59,7 +60,7 @@ app.use(cors({
     }
   },
   credentials: false,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-ID'],
   exposedHeaders: ['X-Request-ID'],
 }));
@@ -73,6 +74,7 @@ app.use('/models', requireAuth, modelsRoutes);
 app.use('/models', requireAuth, locksRoutes);
 app.use('/drivers', requireAuth, driversRoutes);
 app.use('/collab', collabRoutes);
+app.use('/notifications', notificationsRoutes);
 app.get("/openapi.json", (_req, res) => res.json(swaggerSpec));
 
 // Error handling middleware
