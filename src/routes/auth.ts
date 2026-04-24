@@ -1,11 +1,23 @@
 import type { Request, Response, NextFunction } from 'express';
 import express from 'express';
-import { createUser, authenticate, getUserByEmail } from "../services/auth.service";
+import {
+  createUser,
+  authenticate,
+  getUserByEmail,
+  createVerificationToken,
+  consumeVerificationToken,
+} from "../services/auth.service";
+import { sendVerificationEmail } from "../services/email.service";
 import { signToken } from "../utils/jwt";
 import { validate } from '../validation/validate';
-import { signupSchema, loginSchema } from '../validation/auth.schemas';
+import {
+  signupSchema,
+  loginSchema,
+  verifyTokenSchema,
+  resendVerificationSchema,
+} from '../validation/auth.schemas';
 import { AppError, AuthInvalidError, ConflictError } from "../errors";
-import { limitSignup, limitLogin } from "../middlewares/rateLimit";
+import { limitSignup, limitLogin, limitResendVerification } from "../middlewares/rateLimit";
 
 const auth = express.Router();
 
@@ -72,7 +84,6 @@ const auth = express.Router();
  *           $ref: '#/components/schemas/User'
  */
 
-// auth health check endpoint
 /**
  * @openapi
  * /auth/health:
@@ -92,7 +103,6 @@ const auth = express.Router();
  *                   type: string
  *                   example: Auth service is healthy
  */
-// auth health check endpoint
 auth.get('/health', (req: Request, res: Response) => {
   res.status(200).json({ status: 'Auth service is healthy' });
 });
@@ -112,44 +122,123 @@ auth.get('/health', (req: Request, res: Response) => {
  *             $ref: '#/components/schemas/SignupRequest'
  *     responses:
  *       201:
- *         description: User created successfully
+ *         description: Account created — verification email sent
  *         content:
  *           application/json:
  *             schema:
- *               $ref: '#/components/schemas/AuthResponse'
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: "verification email sent to user@example.com"
  *       409:
  *         description: Email already in use
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 error:
- *                   type: string
- *                   example: email already in use
  *       500:
  *         description: Signup failed
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 error:
- *                   type: string
- *                   example: signup failed
  */
-auth.post("/signup", limitSignup, validate({ body: signupSchema }), async (req : Request, res : Response, next: NextFunction) => {
+auth.post("/signup", limitSignup, validate({ body: signupSchema }), async (req: Request, res: Response, next: NextFunction) => {
   const body = req.body;
   try {
     const existing = await getUserByEmail(body.email);
     if (existing) throw new ConflictError("email already in use", { field: "email" });
+
     const user = await createUser(body);
-    const token = signToken({ uid: user.id, email: user.email, role: user.role });
-    res.status(201).json({ token, user: { id: user.id, email: user.email, role: user.role } });
+    const rawToken = await createVerificationToken(user.id);
+
+    // fire-and-forget: if email fails, the user can resend via POST /auth/resend-verification
+    sendVerificationEmail(user.email, rawToken).catch((err) =>
+      console.error("[/auth/signup] email delivery failed:", err.message)
+    );
+
+    res.status(201).json({ message: `verification email sent to ${user.email}` });
   } catch (e: unknown) {
     if (e instanceof AppError) return next(e);
     console.error("[/auth/signup] error:", (e as Error).message || e);
     res.status(500).json({ error: "signup failed" });
+  }
+});
+
+/**
+ * @openapi
+ * /auth/verify:
+ *   post:
+ *     summary: Verify email address using the token from the verification email
+ *     tags:
+ *       - Auth
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - token
+ *             properties:
+ *               token:
+ *                 type: string
+ *                 example: "abc123..."
+ *     responses:
+ *       200:
+ *         description: Email verified — returns JWT and user
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/AuthResponse'
+ *       400:
+ *         description: Invalid or expired token
+ */
+auth.post("/verify", validate({ body: verifyTokenSchema }), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const user = await consumeVerificationToken(req.body.token);
+    const token = signToken({ uid: user.id, email: user.email, role: user.role });
+    res.json({ token, user: { id: user.id, email: user.email, role: user.role } });
+  } catch (e: unknown) {
+    if (e instanceof AppError) return next(e);
+    console.error("[/auth/verify] error:", (e as Error).message || e);
+    res.status(500).json({ error: "verification failed" });
+  }
+});
+
+/**
+ * @openapi
+ * /auth/resend-verification:
+ *   post:
+ *     summary: Resend the verification email to an unverified account
+ *     tags:
+ *       - Auth
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - email
+ *             properties:
+ *               email:
+ *                 type: string
+ *                 format: email
+ *                 example: user@example.com
+ *     responses:
+ *       200:
+ *         description: If an unverified account exists a new email has been sent
+ *       429:
+ *         description: Too many resend attempts
+ */
+auth.post("/resend-verification", limitResendVerification, validate({ body: resendVerificationSchema }), async (req: Request, res: Response) => {
+  // always respond the same way to avoid leaking whether an email is registered
+  const GENERIC_RESPONSE = { message: "if that email has an unverified account, a new verification email has been sent" };
+  try {
+    const user = await getUserByEmail(req.body.email);
+    if (user && !user.is_verified) {
+      const rawToken = await createVerificationToken(user.id);
+      sendVerificationEmail(user.email, rawToken).catch((err) =>
+        console.error("[/auth/resend-verification] email delivery failed:", err.message)
+      );
+    }
+    res.json(GENERIC_RESPONSE);
+  } catch {
+    res.json(GENERIC_RESPONSE);
   }
 });
 
@@ -175,26 +264,12 @@ auth.post("/signup", limitSignup, validate({ body: signupSchema }), async (req :
  *               $ref: '#/components/schemas/AuthResponse'
  *       401:
  *         description: Invalid credentials
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 error:
- *                   type: string
- *                   example: invalid credentials
+ *       403:
+ *         description: Email not verified
  *       500:
  *         description: Login failed
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 error:
- *                   type: string
- *                   example: login failed
  */
-auth.post("/login", limitLogin, validate({ body: loginSchema }), async (req : Request, res : Response, next: NextFunction) => {
+auth.post("/login", limitLogin, validate({ body: loginSchema }), async (req: Request, res: Response, next: NextFunction) => {
   const body = req.body;
   try {
     const user = await authenticate(body);
