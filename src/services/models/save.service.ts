@@ -319,6 +319,21 @@ export async function upsertStates(client: Pick<PoolClient, 'query'>, stm_name: 
     if (stateId) {
       // --- UPDATE existing state ---
       const existingStateId = state.state_id!; // safe due to if (stateId) guard
+
+      let nodeX: number | null | undefined;
+      if (!('node_x' in state)) {
+        nodeX = undefined; // not clearing the field
+      } else {
+        nodeX = state.node_x ?? null;
+      }
+
+      let nodeY: number | null | undefined;
+      if (!('node_y' in state)) {
+        nodeY = undefined; // not clearing the field
+      } else {
+        nodeY = state.node_y ?? null;
+      }
+
       await buildDynamicUpdate(
         client,
         "states",
@@ -332,6 +347,8 @@ export async function upsertStates(client: Pick<PoolClient, 'query'>, stm_name: 
           condition_lower: state.condition_lower,
           condition_upper: state.condition_upper,
           ellictation_type: elicitType,
+          node_x: nodeX,
+          node_y: nodeY,
         }
       );
 
@@ -341,9 +358,10 @@ export async function upsertStates(client: Pick<PoolClient, 'query'>, stm_name: 
       const stateResult = await client.query(
         `INSERT INTO states (
           stm_name, state_name, vast_state_id, eks_condition_estimate,
-          condition_lower, condition_upper, ellictation_type
+          condition_lower, condition_upper, ellictation_type,
+          node_x, node_y
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
         RETURNING id`,
         [
           // state.id is serial in database, so don't insert it
@@ -353,7 +371,9 @@ export async function upsertStates(client: Pick<PoolClient, 'query'>, stm_name: 
           state.eks_condition_estimate,
           state.condition_lower,
           state.condition_upper,
-          elicitType
+          elicitType,
+          state.node_x ?? null,
+          state.node_y ?? null,
         ]
       );
       stateId = stateResult.rows[0]?.id;

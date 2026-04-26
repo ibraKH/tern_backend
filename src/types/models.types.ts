@@ -33,6 +33,8 @@ export interface StateData {
     condition_lower: number | null;
     eks_condition_estimate: number | null;
     elicitation_type?: 'Pilot region' | 'NEAP estimate';
+    node_x?: number | null;
+    node_y?: number | null;
     attributes: StateAttribute[];
 }
 

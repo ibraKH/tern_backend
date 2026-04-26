@@ -50,6 +50,7 @@ export async function getModelByName(name: string): Promise<BMRGData | null> {
     const statesRes = await client.query(
       `SELECT s.id, s.state_name, s.eks_condition_estimate,
               s.condition_lower, s.condition_upper, s.ellictation_type,
+              s.node_x, s.node_y,
               s.vast_state_id,
               v.id AS vast_id, v.vast_class, v.vast_name,
               v.eks_overstorey_class, v.eks_understorey_class,
@@ -96,6 +97,8 @@ export async function getModelByName(name: string): Promise<BMRGData | null> {
         condition_lower: s.condition_lower,
         eks_condition_estimate: s.eks_condition_estimate,
         elicitation_type: s.ellictation_type,
+        node_x: s.node_x,
+        node_y: s.node_y,
         attributes: attrsRes.rows,
       });
     }
