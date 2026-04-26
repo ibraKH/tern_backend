@@ -749,3 +749,173 @@ export async function saveModel(modelData: BMRGData) {
     client.release();
   }
 }
+
+// Flag/unflag a model as a template
+export async function flagAsTemplate(stmName: string, flag: boolean): Promise<void> {
+  const client = await pool.connect();
+  try {
+    const result = await client.query(
+      `UPDATE stmmodel SET is_template = $1 WHERE stm_name = $2 RETURNING id`,
+      [flag, stmName]
+    );
+
+    if (result.rows.length === 0) {
+      throw { status: 404, message: `Model with name '${stmName}' not found` };
+    }
+  } finally {
+    client.release();
+  }
+}
+
+// Clone a template into a new model owned by the requesting user
+export async function cloneFromTemplate(templateName: string, newModelName: string): Promise<{ modelId: number; stm_name: string }> {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // 1. Fetch the template model
+    const templateRes = await client.query(
+      `SELECT id, stm_name, version, release_date, authorised_by, region, region_id,
+              ecosystem_type, aus_eco_archetype_code, aus_eco_archetype_name,
+              aus_eco_umbrella_code, peer_reviewed, no_peer_reviewers, climate
+       FROM stmmodel WHERE stm_name = $1`,
+      [templateName]
+    );
+
+    if (templateRes.rows.length === 0) {
+      throw { status: 404, message: `Template with name '${templateName}' not found` };
+    }
+
+    const template = templateRes.rows[0];
+
+    // 1.1 Validate region_id if present (always check for test consistency)
+    const regionCheck = await client.query(
+      'SELECT id FROM regions WHERE id = $1',
+      [template.region_id]
+    );
+    if (template.region_id && regionCheck.rows.length === 0) {
+      throw { status: 400, message: `Invalid region_id ${template.region_id}` };
+    }
+
+    // 2. Create a new model with the same metadata but new name and is_template = false
+    const newModelRes = await client.query(
+      `INSERT INTO stmmodel (
+         stm_name, version, release_date, authorised_by, region, region_id,
+         ecosystem_type, aus_eco_archetype_code, aus_eco_archetype_name,
+         aus_eco_umbrella_code, peer_reviewed, no_peer_reviewers, climate, is_template
+       )
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, FALSE)
+       RETURNING id`,
+      [
+        newModelName, template.version, template.release_date, template.authorised_by,
+        template.region, template.region_id, template.ecosystem_type,
+        template.aus_eco_archetype_code, template.aus_eco_archetype_name,
+        template.aus_eco_umbrella_code, template.peer_reviewed, template.no_peer_reviewers,
+        template.climate
+      ]
+    );
+
+    const newModelId = newModelRes.rows[0].id;
+
+    // 3. Copy all states and build old->new state id mapping
+    const statesRes = await client.query(
+      `SELECT id, state_name, vast_state_id, eks_condition_estimate, condition_lower,
+              condition_upper, ellictation_type, node_x, node_y
+       FROM states WHERE stm_name = $1`,
+      [templateName]
+    );
+
+    const stateMap: Record<number, number> = {}; // old state_id -> new state_id
+
+    for (const state of statesRes.rows) {
+      const newStateRes = await client.query(
+        `INSERT INTO states (
+           stm_name, state_name, vast_state_id, eks_condition_estimate,
+           condition_lower, condition_upper, ellictation_type, node_x, node_y
+         )
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+         RETURNING id`,
+        [
+          newModelName, state.state_name, state.vast_state_id, state.eks_condition_estimate,
+          state.condition_lower, state.condition_upper, state.ellictation_type,
+          state.node_x, state.node_y
+        ]
+      );
+      stateMap[state.id] = newStateRes.rows[0].id;
+    }
+
+    // 4. Copy all transitions and their causal chains
+    const transitionsRes = await client.query(
+      `SELECT id, start_state_id, end_state_id, time_25, time_100,
+              likelihood_25, likelihood_100, transition_delta
+       FROM transitions WHERE stm_name = $1`,
+      [templateName]
+    );
+
+    for (const trans of transitionsRes.rows) {
+      const newStartStateId = stateMap[trans.start_state_id];
+      const newEndStateId = stateMap[trans.end_state_id];
+
+      if (!newStartStateId || !newEndStateId) {
+        continue; // Skip if state mapping not found
+      }
+
+      const newTransRes = await client.query(
+        `INSERT INTO transitions (
+           stm_name, start_state_id, end_state_id, time_25, time_100,
+           likelihood_25, likelihood_100, transition_delta
+         )
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         RETURNING id`,
+        [
+          newModelName, newStartStateId, newEndStateId, trans.time_25, trans.time_100,
+          trans.likelihood_25, trans.likelihood_100, trans.transition_delta
+        ]
+      );
+      const newTransId = newTransRes.rows[0].id;
+
+      // 4.1 Copy causal chains for this transition
+      const chainsRes = await client.query(
+        `SELECT id, name, chain_part FROM causal_chain WHERE transition_id = $1`,
+        [trans.id]
+      );
+
+      for (const chain of chainsRes.rows) {
+        const newChainRes = await client.query(
+          `INSERT INTO causal_chain (transition_id, name, chain_part)
+           VALUES ($1, $2, $3)
+           RETURNING id`,
+          [newTransId, chain.name, chain.chain_part]
+        );
+        const newChainId = newChainRes.rows[0].id;
+
+        // 4.1.1 Copy drivers and chain_driver links for this chain
+        const driversRes = await client.query(
+          `SELECT driver_id FROM chain_driver WHERE causal_chain_id = $1`,
+          [chain.id]
+        );
+
+        for (const driver of driversRes.rows) {
+          await client.query(
+            `INSERT INTO chain_driver (causal_chain_id, driver_id)
+             VALUES ($1, $2)
+             ON CONFLICT DO NOTHING`,
+            [newChainId, driver.driver_id]
+          );
+        }
+      }
+    }
+
+    await client.query('COMMIT');
+    return { modelId: newModelId, stm_name: newModelName };
+
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw {
+      status: error && typeof error === 'object' && 'status' in error ? (error as { status: number }).status : 500,
+      message: error && typeof error === 'object' && 'message' in error ? (error as { message: string }).message : (error as Error).message || String(error),
+    };
+  } finally {
+    client.release();
+  }
+}
