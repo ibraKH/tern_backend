@@ -1,6 +1,7 @@
 import pool from '../../config/database';
 import type { BMRGData, Contributor, StateData, TransitionData } from '../../types/models.types';
 import type { PoolClient } from 'pg';
+import { calcTransitionDelta } from '../../utils/transition.utils';
 
 // ---------- Utility functions ----------
 export function normalizeReleaseDate(release_date?: string): string | null {
@@ -421,6 +422,25 @@ export async function upsertTransitions(client: Pick<PoolClient, 'query'>, stm_n
     const startStateId = stateMap[transition.start_state_id] ? stateMap[transition.start_state_id] : transition.start_state_id;
     const endStateId = stateMap[transition.end_state_id] ? stateMap[transition.end_state_id] : transition.end_state_id;
 
+    const hasOwn = (key: string) => Object.prototype.hasOwnProperty.call(transition, key);
+    const shouldRecomputeDeltaOnUpdate =
+      hasOwn('likelihood_25') &&
+      hasOwn('likelihood_100') &&
+      hasOwn('time_25') &&
+      hasOwn('time_100');
+
+    const time100 = transition.time_100 ?? null;
+    const time25 = transition.time_25 ?? null;
+    const likelihood25 = transition.likelihood_25 ?? null;
+    const likelihood100 = transition.likelihood_100 ?? null;
+
+    const computedDelta = calcTransitionDelta(
+      likelihood25,
+      likelihood100,
+      time25,
+      time100
+    );
+
     if (transitionId) {
       // --- UPDATE existing transition with dynamic fields ---
       await buildDynamicUpdate(
@@ -437,7 +457,8 @@ export async function upsertTransitions(client: Pick<PoolClient, 'query'>, stm_n
           time_25: transition.time_25,
           likelihood_25: transition.likelihood_25,
           likelihood_100: transition.likelihood_100,
-          transition_delta: transition.transition_delta
+          // Recompute server-side when all inputs are present in payload; otherwise, leave existing value unchanged.
+          transition_delta: shouldRecomputeDeltaOnUpdate ? computedDelta : undefined
         }
       );
 
@@ -469,11 +490,11 @@ export async function upsertTransitions(client: Pick<PoolClient, 'query'>, stm_n
               startStateId,
               endStateId,
               transition.transition_id,
-              transition.time_100,
-              transition.time_25,
-              transition.likelihood_25,
-              transition.likelihood_100,
-              transition.transition_delta
+              time100,
+              time25,
+              likelihood25,
+              likelihood100,
+              computedDelta
             ]
           )
         : await client.query(
@@ -488,11 +509,11 @@ export async function upsertTransitions(client: Pick<PoolClient, 'query'>, stm_n
               startStateId,
               endStateId,
               transition.transition_id,
-              transition.time_100,
-              transition.time_25,
-              transition.likelihood_25,
-              transition.likelihood_100,
-              transition.transition_delta
+              time100,
+              time25,
+              likelihood25,
+              likelihood100,
+              computedDelta
             ]
           );
 
