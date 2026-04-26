@@ -9,7 +9,9 @@ import authRoutes from './routes/auth';
 import modelsRoutes from './routes/models';
 import collabRoutes from './routes/collab';
 import locksRoutes from './routes/locks';
+import adminRoutes from './routes/admin';
 import { requireAuth } from "./middlewares/auth.middleware";
+import { requireAdmin } from "./middlewares/requireAdmin";
 import { errorHandler } from "./middlewares/error.middleware";
 import { requestId } from "./middlewares/requestId.middleware";
 
@@ -58,12 +60,12 @@ app.use(cors({
     }
   },
   credentials: false,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-ID'],
   exposedHeaders: ['X-Request-ID'],
 }));
 
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json());
 app.use("/docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 // Routes
@@ -71,6 +73,7 @@ app.use('/auth', authRoutes);
 app.use('/models', requireAuth, modelsRoutes);
 app.use('/models', requireAuth, locksRoutes);
 app.use('/collab', collabRoutes);
+app.use('/api/admin', requireAuth, requireAdmin, adminRoutes);
 app.get("/openapi.json", (_req, res) => res.json(swaggerSpec));
 
 // Error handling middleware
@@ -78,7 +81,7 @@ app.use(errorHandler);
 
 // 404 handler
 const frontendUrl = process.env.FRONTEND_URL || 'https://stm-8nizc.ondigitalocean.app';
-app.use((req: Request, res: Response) => {
+app.use((_req: Request, res: Response) => {
   res.redirect(`${frontendUrl}/notfound`);
 });
 
