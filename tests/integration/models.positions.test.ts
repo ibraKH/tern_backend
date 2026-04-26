@@ -20,6 +20,13 @@ jest.mock('../../src/config/database', () => {
 
   let nextStateId = 100;
 
+  const resetStore = () => {
+    store.modelId = 42;
+    store.stmName = 'PosModel';
+    store.states.length = 0;
+    nextStateId = 100;
+  };
+
   const client = {
     query: jest.fn(async (sql: string, params?: unknown[]) => {
       const text = String(sql);
@@ -166,16 +173,21 @@ jest.mock('../../src/config/database', () => {
     // Expose for debugging if needed
     _store: store,
     _client: client,
+    _resetMockStore: resetStore,
   };
 
   return { __esModule: true, default: pool };
 });
 
 import app from '../../src/app';
+import pool from '../../src/config/database';
 import { verifyToken } from '../../src/utils/jwt';
 
 describe('Model node positions persistence', () => {
   beforeEach(() => {
+    // ensure test isolation for future additional cases
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (pool as any)?._resetMockStore?.();
     jest.clearAllMocks();
     (verifyToken as jest.Mock).mockReturnValue({ uid: 1, email: 'admin@admin.com', role: 'Editor' });
   });
