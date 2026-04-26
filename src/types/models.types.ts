@@ -33,6 +33,8 @@ export interface StateData {
     condition_lower: number | null;
     eks_condition_estimate: number | null;
     elicitation_type?: 'Pilot region' | 'NEAP estimate';
+    node_x?: number | null;
+    node_y?: number | null;
     attributes: StateAttribute[];
 }
 
@@ -64,7 +66,7 @@ export interface TransitionData {
     likelihood_100?: number | null;
     notes?: string | null;
     causal_chain: CausalChain[];
-    transition_delta: number | null;
+    transition_delta?: number | null;
 }
 
 export interface Contributor {

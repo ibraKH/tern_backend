@@ -1,6 +1,7 @@
 import pool from '../../config/database';
 import type { BMRGData, Contributor, StateData, TransitionData } from '../../types/models.types';
 import type { PoolClient } from 'pg';
+import { calcTransitionDelta } from '../../utils/transition.utils';
 
 // ---------- Utility functions ----------
 export function normalizeReleaseDate(release_date?: string): string | null {
@@ -318,6 +319,21 @@ export async function upsertStates(client: Pick<PoolClient, 'query'>, stm_name: 
     if (stateId) {
       // --- UPDATE existing state ---
       const existingStateId = state.state_id!; // safe due to if (stateId) guard
+
+      let nodeX: number | null | undefined;
+      if (!Object.prototype.hasOwnProperty.call(state, 'node_x')) {
+        nodeX = undefined; // not clearing the field
+      } else {
+        nodeX = state.node_x ?? null;
+      }
+
+      let nodeY: number | null | undefined;
+      if (!Object.prototype.hasOwnProperty.call(state, 'node_y')) {
+        nodeY = undefined; // not clearing the field
+      } else {
+        nodeY = state.node_y ?? null;
+      }
+
       await buildDynamicUpdate(
         client,
         "states",
@@ -331,6 +347,8 @@ export async function upsertStates(client: Pick<PoolClient, 'query'>, stm_name: 
           condition_lower: state.condition_lower,
           condition_upper: state.condition_upper,
           ellictation_type: elicitType,
+          node_x: nodeX,
+          node_y: nodeY,
         }
       );
 
@@ -340,9 +358,10 @@ export async function upsertStates(client: Pick<PoolClient, 'query'>, stm_name: 
       const stateResult = await client.query(
         `INSERT INTO states (
           stm_name, state_name, vast_state_id, eks_condition_estimate,
-          condition_lower, condition_upper, ellictation_type
+          condition_lower, condition_upper, ellictation_type,
+          node_x, node_y
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
         RETURNING id`,
         [
           // state.id is serial in database, so don't insert it
@@ -352,7 +371,9 @@ export async function upsertStates(client: Pick<PoolClient, 'query'>, stm_name: 
           state.eks_condition_estimate,
           state.condition_lower,
           state.condition_upper,
-          elicitType
+          elicitType,
+          state.node_x ?? null,
+          state.node_y ?? null,
         ]
       );
       stateId = stateResult.rows[0]?.id;
@@ -421,7 +442,53 @@ export async function upsertTransitions(client: Pick<PoolClient, 'query'>, stm_n
     const startStateId = stateMap[transition.start_state_id] ? stateMap[transition.start_state_id] : transition.start_state_id;
     const endStateId = stateMap[transition.end_state_id] ? stateMap[transition.end_state_id] : transition.end_state_id;
 
+    const hasOwn = (key: string) => Object.prototype.hasOwnProperty.call(transition, key);
+    const anyDeltaInputProvided =
+      hasOwn('likelihood_25') ||
+      hasOwn('likelihood_100') ||
+      hasOwn('time_25') ||
+      hasOwn('time_100');
+
+    const time100 = transition.time_100 ?? null;
+    const time25 = transition.time_25 ?? null;
+    const likelihood25 = transition.likelihood_25 ?? null;
+    const likelihood100 = transition.likelihood_100 ?? null;
+
+    const computedDelta = calcTransitionDelta(likelihood25, likelihood100, time25, time100);
+
     if (transitionId) {
+      let computedDeltaForUpdate: number | null = null;
+      if (anyDeltaInputProvided) {
+        const existingRes = await client.query<{
+          time_25: number | null;
+          time_100: number | null;
+          likelihood_25: number | null;
+          likelihood_100: number | null;
+        }>(
+          `SELECT time_25, time_100, likelihood_25, likelihood_100
+           FROM transitions
+           WHERE id = $1`,
+          [transitionId]
+        );
+        if (existingRes.rows.length === 0) {
+          throw { status: 404, message: `transitions with id=${transitionId} not found` };
+        }
+
+        const existing = existingRes.rows[0];
+
+        const mergedTime25 = hasOwn('time_25') ? (transition.time_25 ?? null) : (existing.time_25 ?? null);
+        const mergedTime100 = hasOwn('time_100') ? (transition.time_100 ?? null) : (existing.time_100 ?? null);
+        const mergedLikelihood25 = hasOwn('likelihood_25') ? (transition.likelihood_25 ?? null) : (existing.likelihood_25 ?? null);
+        const mergedLikelihood100 = hasOwn('likelihood_100') ? (transition.likelihood_100 ?? null) : (existing.likelihood_100 ?? null);
+
+        computedDeltaForUpdate = calcTransitionDelta(
+          mergedLikelihood25,
+          mergedLikelihood100,
+          mergedTime25,
+          mergedTime100
+        );
+      }
+
       // --- UPDATE existing transition with dynamic fields ---
       await buildDynamicUpdate(
         client,
@@ -437,7 +504,8 @@ export async function upsertTransitions(client: Pick<PoolClient, 'query'>, stm_n
           time_25: transition.time_25,
           likelihood_25: transition.likelihood_25,
           likelihood_100: transition.likelihood_100,
-          transition_delta: transition.transition_delta
+          // Recompute server-side whenever any input changes, using payload merged with existing DB values.
+          transition_delta: anyDeltaInputProvided ? computedDeltaForUpdate : undefined
         }
       );
 
@@ -469,11 +537,11 @@ export async function upsertTransitions(client: Pick<PoolClient, 'query'>, stm_n
               startStateId,
               endStateId,
               transition.transition_id,
-              transition.time_100,
-              transition.time_25,
-              transition.likelihood_25,
-              transition.likelihood_100,
-              transition.transition_delta
+              time100,
+              time25,
+              likelihood25,
+              likelihood100,
+              computedDelta
             ]
           )
         : await client.query(
@@ -488,11 +556,11 @@ export async function upsertTransitions(client: Pick<PoolClient, 'query'>, stm_n
               startStateId,
               endStateId,
               transition.transition_id,
-              transition.time_100,
-              transition.time_25,
-              transition.likelihood_25,
-              transition.likelihood_100,
-              transition.transition_delta
+              time100,
+              time25,
+              likelihood25,
+              likelihood100,
+              computedDelta
             ]
           );
 
