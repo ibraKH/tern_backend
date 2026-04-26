@@ -4,8 +4,10 @@ import { joinRoom, leaveRoom, getRoom, getUserColor } from './roomManager';
 import type { SocketAuthedUser } from './auth.middleware';
 import { getRecentActivity } from '../services/collab/activity.service';
 import { acquireLock, releaseLock, releaseAllLocksForUser, checkLockOwnership } from '../services/collab/locks.service';
+import { cacheLock, evictLock, evictLocksForUser, checkCache } from './lockCache';
 
 export const COLLAB_THROTTLE_MS = 50;
+export const PATCH_COALESCE_MS = 20;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -46,6 +48,8 @@ function makeThrottleKey(event: string, roomKey: string, userId: number): Thrott
 
 export function registerCollabHandlers(io: Server): void {
   const pending = new Map<ThrottleKey, PendingBroadcast>();
+  // Keyed by `socketId:modelName:entityType:entityId:field` — last write wins per field.
+  const patchFlush = new Map<string, { timer: NodeJS.Timeout; value: unknown }>();
 
   io.on('connection', (socket) => {
     /** Confirm this socket is the active member for the user in the given room. */
@@ -191,14 +195,17 @@ export function registerCollabHandlers(io: Server): void {
       }
 
       void (async () => {
+        const t0 = Date.now();
         const result = await acquireLock({
           entityType: p!.entityType!,
           entityId: p!.entityId!,
           modelName: p!.modelName!,
           userId: user.uid,
         });
+        console.log(`[perf] lock:acquire db=${Date.now() - t0}ms success=${result.success}`);
 
         if (result.success) {
+          cacheLock(p!.modelName!, p!.entityType!, p!.entityId!, user.uid);
           const color = getUserColor(user.uid, roomKey) ?? '#999';
           io.to(roomKey).emit('lock:acquired', {
             entityType: p!.entityType,
@@ -243,6 +250,7 @@ export function registerCollabHandlers(io: Server): void {
         });
 
         if (deleted > 0) {
+          evictLock(p!.modelName!, p!.entityType!, p!.entityId!);
           const roomKey = `name:${p!.modelName}`;
           io.to(roomKey).emit('lock:released', {
             entityType: p!.entityType,
@@ -284,26 +292,59 @@ export function registerCollabHandlers(io: Server): void {
       }
 
       void (async () => {
-        const ownership = await checkLockOwnership({
-          entityType: p!.entityType!,
-          entityId: p!.entityId!,
-          modelName: p!.modelName!,
-          userId: user.uid,
-        });
+        const t0 = Date.now();
 
-        if (!ownership.owned) {
-          socket.emit('error:patch', { reason: ownership.reason });
+        // Cache-first lock check — skips DB round-trip on warm path.
+        const hit = checkCache(p!.modelName!, p!.entityType!, p!.entityId!, user.uid);
+        let owned: boolean;
+        let reason: string | undefined;
+
+        if (hit !== null) {
+          owned = hit === 'owned';
+          reason = hit === 'not_owner' ? 'not_owner' : undefined;
+        } else {
+          const ownership = await checkLockOwnership({
+            entityType: p!.entityType!,
+            entityId: p!.entityId!,
+            modelName: p!.modelName!,
+            userId: user.uid,
+          });
+          owned = ownership.owned;
+          reason = ownership.reason;
+        }
+
+        const t1 = Date.now();
+
+        if (!owned) {
+          socket.emit('error:patch', { reason });
           return;
         }
 
-        // Broadcast the patch to everyone else in the room.
-        socket.to(roomKey).emit('entity:patch', {
-          entityType: p!.entityType,
-          entityId: p!.entityId,
-          field: p!.field,
-          value: p!.value,
-          userId: user.uid,
-        });
+        // Coalesce rapid patches for the same field — last write wins within the window.
+        const flushKey = `${socket.id}:${p!.modelName}:${p!.entityType}:${p!.entityId}:${p!.field}`;
+        const existing = patchFlush.get(flushKey);
+        if (existing) {
+          existing.value = p!.value;
+          return;
+        }
+
+        const timer = setTimeout(() => {
+          const entry = patchFlush.get(flushKey);
+          if (!entry) return;
+          patchFlush.delete(flushKey);
+          if (!socket.rooms.has(roomKey)) return;
+
+          socket.to(roomKey).emit('entity:patch', {
+            entityType: p!.entityType,
+            entityId: p!.entityId,
+            field: p!.field,
+            value: entry.value,
+            userId: user.uid,
+          });
+          console.log(`[perf] entity:patch lockCheck=${t1 - t0}ms total=${Date.now() - t0}ms cacheHit=${hit !== null}`);
+        }, PATCH_COALESCE_MS);
+
+        patchFlush.set(flushKey, { timer, value: p!.value });
       })().catch((err) => {
         console.error('[collab] entity:patch error:', err);
       });
@@ -320,6 +361,7 @@ export function registerCollabHandlers(io: Server): void {
         if (currentUser) {
           try {
             const released = await releaseAllLocksForUser(currentUser.uid);
+            evictLocksForUser(currentUser.uid);
             for (const lock of released) {
               const lockRoomKey = `name:${lock.modelName}`;
               io.to(lockRoomKey).emit('lock:released', {
@@ -352,6 +394,14 @@ export function registerCollabHandlers(io: Server): void {
                 pending.delete(key);
               }
             }
+          }
+        }
+
+        // Cancel pending patch coalescing timers for this socket.
+        for (const [k, entry] of patchFlush) {
+          if (k.startsWith(`${socket.id}:`)) {
+            clearTimeout(entry.timer);
+            patchFlush.delete(k);
           }
         }
       })().catch(() => { /* best-effort cleanup */ });
