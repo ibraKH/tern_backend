@@ -1,6 +1,6 @@
 import pool from '../../config/database';
 
-const LOCK_TTL_SECONDS = 30;
+export const LOCK_TTL_SECONDS = 30;
 const VALID_ENTITY_TYPES = ['node', 'edge'] as const;
 
 export interface AcquireLockParams {
