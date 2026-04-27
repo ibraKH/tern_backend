@@ -1,6 +1,5 @@
 import type { Request, Response } from 'express';
 import express from 'express';
-import pool from '../config/database';
 import { saveModel, flagAsTemplate, cloneFromTemplate } from '../services/models/save.service';
 import { getAllModels, getModelByName, getTemplates } from '../services/models/show.service';
 import { removeModelByName,removeState,removeTransitionByBusinessId } from '../services/models/remove.service';
@@ -11,7 +10,7 @@ import { logActivity } from '../services/collab/activity.service';
 import { broadcastActivity } from '../collab/roomManager';
 import { io } from '../socket';
 
-type AuthedRequest = Request & { user?: { id: number; email: string; role: string } };
+type AuthedRequest = Request & { user?: { id: number; email: string; role: string; contributor_id: number | null } };
 import { limitModelsRead, limitModelsWrite } from '../middlewares/rateLimit';
 
 const models = express.Router();
@@ -542,7 +541,7 @@ models.post('/from-template/:name', limitModelsWrite, requireRole(["Admin", "Edi
       return res.status(400).json({ message: 'new_name is required and must be a non-empty string' });
     }
 
-    const result = await cloneFromTemplate(name, new_name);
+    const result = await cloneFromTemplate(name, new_name, user?.contributor_id ?? null);
     res.status(201).json({ success: true, ...result });
 
     // Log activity
@@ -961,33 +960,9 @@ models.patch('/:name/template', limitModelsWrite, async (req: Request, res: Resp
     const { flag } = req.body;
     const user = (req as AuthedRequest).user;
 
-    // Check if user is Admin or model owner
-    if (user?.role !== 'Admin') {
-      // Check if user is a contributor (owner) of this model
-      const client = await pool.connect();
-      try {
-        const ownerRes = await client.query(
-          `SELECT c.id, LOWER(c.email) AS email
-           FROM contributors c
-           JOIN model_contributions mc ON c.id = mc.contributor_id
-           JOIN stmmodel sm ON sm.id = mc.stm_id
-           WHERE sm.stm_name = $1`,
-          [name]
-        );
-
-        const isOwner = ownerRes.rows.some((row: any) => row.email === user?.email?.toLowerCase());
-        if (!isOwner) {
-          return res.status(403).json({ message: 'Admin or owner required to update template flag' });
-        }
-      } finally {
-        client.release();
-      }
-    }
-
-    await flagAsTemplate(name, flag);
+    await flagAsTemplate(name, flag, user?.role ?? '', user?.email ?? '');
     res.json({ success: true });
 
-    // Log activity
     if (user) {
       void logActivity({ modelName: name, userId: user.id, action: 'template_flag_updated', detail: { flag } });
     }

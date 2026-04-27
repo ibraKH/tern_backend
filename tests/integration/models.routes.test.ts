@@ -29,12 +29,12 @@ describe('health and templates of models router', () => {
       uid: 1,
       email: 'admin@admin.com',
       role: 'Editor',
-      contributor_id: null,
+      contributor_id: 1,
     });
 
     (pool.query as jest.Mock).mockResolvedValue({
       rows: [
-        { id: 1, email: 'admin@admin.com', role: 'Editor', contributor_id: null },
+        { id: 1, email: 'admin@admin.com', role: 'Editor', contributor_id: 1 },
       ],
     });
 
@@ -64,8 +64,7 @@ describe('health and templates of models router', () => {
     expect(res.status).toBe(200);
     expect(res.body).toEqual(['Template A', 'Template B']);
     expect(mockClient.query).toHaveBeenCalledWith(
-      expect.stringContaining('SELECT stm_name FROM stmmodel WHERE is_template = TRUE'),
-      []
+      expect.stringContaining('SELECT stm_name FROM stmmodel WHERE is_template = TRUE')
     );
   });
 
@@ -106,12 +105,13 @@ describe('health and templates of models router', () => {
             climate: 'Tropical',
           },
         ],
-      })
-      .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [{ id: 42 }] })
-      .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [] });
+      }) // template fetch
+      .mockResolvedValueOnce({ rows: [] }) // region check
+      .mockResolvedValueOnce({ rows: [{ id: 42 }] }) // new model insert
+      .mockResolvedValueOnce({ rows: [] }) // model_contributions insert
+      .mockResolvedValueOnce({ rows: [] }) // states SELECT
+      .mockResolvedValueOnce({ rows: [] }) // transitions SELECT
+      .mockResolvedValueOnce({ rows: [] }); // COMMIT
 
     const res = await request(app)
       .post('/models/from-template/Template%20A')

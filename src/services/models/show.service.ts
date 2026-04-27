@@ -20,8 +20,7 @@ export async function getTemplates() {
   const client = await pool.connect();
   try {
     const result = await client.query(
-      `SELECT stm_name FROM stmmodel WHERE is_template = TRUE ORDER BY stm_name`,
-      []
+      `SELECT stm_name FROM stmmodel WHERE is_template = TRUE ORDER BY stm_name`
     );
     // Only return the names as an array of strings
     return result.rows.map(r => r.stm_name);

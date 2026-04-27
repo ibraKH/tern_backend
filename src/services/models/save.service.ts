@@ -750,10 +750,25 @@ export async function saveModel(modelData: BMRGData) {
   }
 }
 
-// Flag/unflag a model as a template
-export async function flagAsTemplate(stmName: string, flag: boolean): Promise<void> {
+// Flag/unflag a model as a template (Admin or model owner only)
+export async function flagAsTemplate(stmName: string, flag: boolean, userRole: string, userEmail: string): Promise<void> {
   const client = await pool.connect();
   try {
+    if (userRole !== 'Admin') {
+      const ownerRes = await client.query(
+        `SELECT c.id, LOWER(c.email) AS email
+         FROM contributors c
+         JOIN model_contributions mc ON c.id = mc.contributor_id
+         JOIN stmmodel sm ON sm.id = mc.stm_id
+         WHERE sm.stm_name = $1`,
+        [stmName]
+      );
+      const isOwner = ownerRes.rows.some((row: { email: string }) => row.email === userEmail.toLowerCase());
+      if (!isOwner) {
+        throw { status: 403, message: 'Admin or owner required to update template flag' };
+      }
+    }
+
     const result = await client.query(
       `UPDATE stmmodel SET is_template = $1 WHERE stm_name = $2 RETURNING id`,
       [flag, stmName]
@@ -768,17 +783,17 @@ export async function flagAsTemplate(stmName: string, flag: boolean): Promise<vo
 }
 
 // Clone a template into a new model owned by the requesting user
-export async function cloneFromTemplate(templateName: string, newModelName: string): Promise<{ modelId: number; stm_name: string }> {
+export async function cloneFromTemplate(templateName: string, newModelName: string, contributorId: number | null): Promise<{ modelId: number; stm_name: string }> {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
 
-    // 1. Fetch the template model
+    // 1. Fetch the template model (must be flagged as a template)
     const templateRes = await client.query(
       `SELECT id, stm_name, version, release_date, authorised_by, region, region_id,
               ecosystem_type, aus_eco_archetype_code, aus_eco_archetype_name,
               aus_eco_umbrella_code, peer_reviewed, no_peer_reviewers, climate
-       FROM stmmodel WHERE stm_name = $1`,
+       FROM stmmodel WHERE stm_name = $1 AND is_template = TRUE`,
       [templateName]
     );
 
@@ -816,6 +831,14 @@ export async function cloneFromTemplate(templateName: string, newModelName: stri
     );
 
     const newModelId = newModelRes.rows[0].id;
+
+    // 2.1 Link the cloning user as the owner of the new model
+    if (contributorId !== null) {
+      await client.query(
+        `INSERT INTO model_contributions (stm_id, contributor_id, contribution_type) VALUES ($1, $2, 'Author')`,
+        [newModelId, contributorId]
+      );
+    }
 
     // 3. Copy all states and build old->new state id mapping
     const statesRes = await client.query(
@@ -857,7 +880,7 @@ export async function cloneFromTemplate(templateName: string, newModelName: stri
       const newEndStateId = stateMap[trans.end_state_id];
 
       if (!newStartStateId || !newEndStateId) {
-        continue; // Skip if state mapping not found
+        throw { status: 500, message: `State mapping missing for transition id=${trans.id} in template '${templateName}'` };
       }
 
       const newTransRes = await client.query(
