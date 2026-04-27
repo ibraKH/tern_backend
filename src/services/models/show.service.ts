@@ -15,6 +15,20 @@ export async function getAllModels() {
   }
 }
 
+// Get all template model names (where is_template = TRUE)
+export async function getTemplates() {
+  const client = await pool.connect();
+  try {
+    const result = await client.query(
+      `SELECT stm_name FROM stmmodel WHERE is_template = TRUE ORDER BY stm_name`
+    );
+    // Only return the names as an array of strings
+    return result.rows.map(r => r.stm_name);
+  } finally {
+    client.release();
+  }
+}
+
 // Get model details by name, including states and transitions
 export async function getModelByName(name: string): Promise<BMRGData | null> {
   const client = await pool.connect();
@@ -25,7 +39,7 @@ export async function getModelByName(name: string): Promise<BMRGData | null> {
               region, region_id, ecosystem_type,
               aus_eco_archetype_code, aus_eco_archetype_name,
               aus_eco_umbrella_code, peer_reviewed,
-              no_peer_reviewers, climate
+              no_peer_reviewers, climate, is_template
        FROM stmmodel
        WHERE stm_name = $1`,
       [name]
@@ -170,6 +184,7 @@ export async function getModelByName(name: string): Promise<BMRGData | null> {
       states,
       transitions,
       method_alignment: methodRes.rows[0]?.method_name || '',
+      is_template: row.is_template,
     };
 
     return model;

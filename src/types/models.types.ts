@@ -95,4 +95,5 @@ export interface BMRGData {
     states: StateData[];
     transitions: TransitionData[];
     method_alignment?: string | null;
+    is_template?: boolean;
 }

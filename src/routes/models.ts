@@ -1,7 +1,7 @@
 import type { Request, Response } from 'express';
 import express from 'express';
-import { saveModel } from '../services/models/save.service';
-import { getAllModels, getModelByName } from '../services/models/show.service';
+import { saveModel, flagAsTemplate, cloneFromTemplate } from '../services/models/save.service';
+import { getAllModels, getModelByName, getTemplates } from '../services/models/show.service';
 import { removeModelByName,removeState,removeTransitionByBusinessId } from '../services/models/remove.service';
 import { requireRole } from '../middlewares/role.middleware';
 import { getAllModelsSchema, getModelByNameSchema } from '../validation/models.validation';
@@ -10,7 +10,7 @@ import { logActivity } from '../services/collab/activity.service';
 import { broadcastActivity } from '../collab/roomManager';
 import { io } from '../socket';
 
-type AuthedRequest = Request & { user?: { id: number; email: string; role: string } };
+type AuthedRequest = Request & { user?: { id: number; email: string; role: string; contributor_id: number | null } };
 import { limitModelsRead, limitModelsWrite } from '../middlewares/rateLimit';
 
 const models = express.Router();
@@ -267,6 +267,10 @@ const models = express.Router();
  *         method_alignment:
  *           type: string
  *           nullable: true
+ *         is_template:
+ *           type: boolean
+ *           nullable: true
+ *           description: Whether this model is a template that can be cloned
  *
  *     SaveModelResponse:
  *       type: object
@@ -352,6 +356,49 @@ models.get('/all', limitModelsRead, requireRole(["Admin"]), validate({ params: g
   }
 });
 
+// GET /models/templates: Get all template model names
+/**
+ * @openapi
+ * /models/templates:
+ *   get:
+ *     summary: List all template models
+ *     description: Returns an array of `stm_name` values for all models marked as templates, ordered by name.
+ *     tags: [Models]
+ *     security:
+ *       - BearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Array of template model names.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 type: string
+ *             example:
+ *               - "Template Model A"
+ *               - "Template Model B"
+ *       401:
+ *         description: Missing/invalid token.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ErrorResponse' }
+ *       500:
+ *         description: Server error.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ErrorResponse' }
+ */
+models.get('/templates', limitModelsRead, async (req: Request, res: Response) => {
+  try {
+    const templates = await getTemplates();
+    res.json(templates);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: 'Error fetching templates', error });
+  }
+});
+
 // GET /models/:name: get model details by name
 /**
  * @openapi
@@ -406,6 +453,110 @@ models.get('/:name', limitModelsRead, requireRole(["Admin", "Editor", "Viewer"])
     res.json(model);
   } catch (error) {
     res.status(500).json({ message: 'Error fetching model details', error });
+  }
+});
+
+// POST /models/from-template/:name: Clone a template into a new model
+/**
+ * @openapi
+ * /models/from-template/{name}:
+ *   post:
+ *     summary: Clone a template into a new model
+ *     description: >
+ *       Creates a new model by deep-copying all states, transitions, and causal chains from the specified template.
+ *       The new model is not marked as a template and is owned by the requesting user.
+ *     tags: [Models]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: name
+ *         required: true
+ *         description: The `stm_name` of the template model to clone.
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [new_name]
+ *             properties:
+ *               new_name:
+ *                 type: string
+ *                 description: The name for the newly cloned model.
+ *           example: { new_name: "My Custom Model" }
+ *     responses:
+ *       201:
+ *         description: Model cloned successfully.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 modelId:
+ *                   type: integer
+ *                 stm_name:
+ *                   type: string
+ *             example:
+ *               success: true
+ *               modelId: 456
+ *               stm_name: "My Custom Model"
+ *       400:
+ *         description: Invalid request (missing new_name, duplicate model name, etc.).
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ErrorResponse' }
+ *       401:
+ *         description: Missing/invalid token.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ErrorResponse' }
+ *       403:
+ *         description: Forbidden (requires authenticated user).
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ErrorResponse' }
+ *       404:
+ *         description: Template not found.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ErrorResponse' }
+ *       500:
+ *         description: Server error.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ErrorResponse' }
+ */
+models.post('/from-template/:name', limitModelsWrite, requireRole(["Admin", "Editor"]), async (req: Request, res: Response) => {
+  try {
+    const { name } = req.params as { name: string };
+    const { new_name } = req.body;
+    const user = (req as AuthedRequest).user;
+
+    if (!new_name || typeof new_name !== 'string' || new_name.trim() === '') {
+      return res.status(400).json({ message: 'new_name is required and must be a non-empty string' });
+    }
+
+    const result = await cloneFromTemplate(name, new_name, user?.contributor_id ?? null);
+    res.status(201).json({ success: true, ...result });
+
+    // Log activity
+    if (user) {
+      void logActivity({
+        modelName: new_name,
+        userId: user.id,
+        action: 'model_cloned_from_template',
+        detail: { sourceTemplate: name, newModelId: result.modelId }
+      });
+    }
+  } catch (error: unknown) {
+    const status = error && typeof error === 'object' && 'status' in error ? (error as { status: number }).status : 500;
+    const message = error && typeof error === 'object' && 'message' in error ? (error as { message: string }).message : String(error);
+    res.status(status).json({ message });
   }
 });
 
@@ -736,6 +887,89 @@ models.delete('/:name/transitions/:transitionId', limitModelsWrite, requireRole(
     }
   } catch (error: unknown) {
     res.status(500).json({ message: 'Error removing transition', error: String(error) });
+  }
+});
+
+// PATCH /models/:name/template: Flag/unflag a model as template
+/**
+ * @openapi
+ * /models/{name}/template:
+ *   patch:
+ *     summary: Flag or unflag a model as a template
+ *     description: >
+ *       Sets or clears the is_template flag on a model.
+ *       Only the model's owner (determined by model contributors) or an Admin can perform this action.
+ *     tags: [Models]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: name
+ *         required: true
+ *         description: The `stm_name` of the model to update.
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [flag]
+ *             properties:
+ *               flag:
+ *                 type: boolean
+ *                 description: Whether to mark as template (true) or remove template status (false).
+ *           example: { flag: true }
+ *     responses:
+ *       200:
+ *         description: Template flag updated successfully.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *             example:
+ *               success: true
+ *       401:
+ *         description: Missing/invalid token.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ErrorResponse' }
+ *       403:
+ *         description: Forbidden. Admin or model owner required.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ErrorResponse' }
+ *       404:
+ *         description: Model not found.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ErrorResponse' }
+ *       500:
+ *         description: Server error.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ErrorResponse' }
+ */
+models.patch('/:name/template', limitModelsWrite, async (req: Request, res: Response) => {
+  try {
+    const { name } = req.params as { name: string };
+    const { flag } = req.body;
+    const user = (req as AuthedRequest).user;
+
+    await flagAsTemplate(name, flag, user?.role ?? '', user?.email ?? '');
+    res.json({ success: true });
+
+    if (user) {
+      void logActivity({ modelName: name, userId: user.id, action: 'template_flag_updated', detail: { flag } });
+    }
+  } catch (error: unknown) {
+    const status = error && typeof error === 'object' && 'status' in error ? (error as { status: number }).status : 500;
+    const message = error && typeof error === 'object' && 'message' in error ? (error as { message: string }).message : String(error);
+    res.status(status).json({ message });
   }
 });
 
