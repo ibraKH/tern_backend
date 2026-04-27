@@ -84,6 +84,48 @@ describe('health and templates of models router', () => {
     );
   });
 
+  it('PATCH /models/:name/template — Admin user succeeds (returns 200 { success: true })', async () => {
+    (pool.query as jest.Mock).mockResolvedValueOnce({
+      rows: [{ id: 1, email: 'admin@admin.com', role: 'Admin', contributor_id: 1 }],
+    });
+
+    mockClient.query
+      .mockResolvedValueOnce({ rows: [{ id: 1 }] }); // UPDATE stmmodel SET is_template
+
+    const res = await request(app)
+      .patch('/models/my-template/template')
+      .send({ flag: true })
+      .set('Authorization', 'Bearer any-token');
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ success: true });
+  });
+
+  it('POST /models/from-template/:name returns 404 when the template name does not exist', async () => {
+    mockClient.query
+      .mockResolvedValueOnce({ rows: [] }) // BEGIN
+      .mockResolvedValueOnce({ rows: [] }) // template fetch — not found
+      .mockResolvedValueOnce({ rows: [] }); // ROLLBACK
+
+    const res = await request(app)
+      .post('/models/from-template/NonExistentTemplate')
+      .send({ new_name: 'Cloned Model' })
+      .set('Authorization', 'Bearer any-token');
+
+    expect(res.status).toBe(404);
+    expect(res.body).toEqual({ message: "Template with name 'NonExistentTemplate' not found" });
+  });
+
+  it('POST /models/from-template/:name returns 400 when new_name is missing', async () => {
+    const res = await request(app)
+      .post('/models/from-template/Template%20A')
+      .send({})
+      .set('Authorization', 'Bearer any-token');
+
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ message: 'new_name is required and must be a non-empty string' });
+  });
+
   it('POST /models/from-template/:name clones a template and returns the new model id', async () => {
     mockClient.query
       .mockResolvedValueOnce({ rows: [] }) // BEGIN

@@ -541,7 +541,7 @@ models.post('/from-template/:name', limitModelsWrite, requireRole(["Admin", "Edi
       return res.status(400).json({ message: 'new_name is required and must be a non-empty string' });
     }
 
-    const result = await cloneFromTemplate(name, new_name, user?.contributor_id ?? null);
+    const result = await cloneFromTemplate(name, new_name, user?.contributor_id ?? null, user?.email);
     res.status(201).json({ success: true, ...result });
 
     // Log activity

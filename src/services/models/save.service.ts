@@ -783,7 +783,7 @@ export async function flagAsTemplate(stmName: string, flag: boolean, userRole: s
 }
 
 // Clone a template into a new model owned by the requesting user
-export async function cloneFromTemplate(templateName: string, newModelName: string, contributorId: number | null): Promise<{ modelId: number; stm_name: string }> {
+export async function cloneFromTemplate(templateName: string, newModelName: string, contributorId: number | null, userEmail?: string): Promise<{ modelId: number; stm_name: string }> {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -832,15 +832,34 @@ export async function cloneFromTemplate(templateName: string, newModelName: stri
 
     const newModelId = newModelRes.rows[0].id;
 
-    // 2.1 Link the cloning user as the owner of the new model
-    if (contributorId !== null) {
+    // 2.1 Link the cloning user as the owner of the new model.
+    // If no contributor_id, look up or create a contributors row using the user's email.
+    let resolvedContributorId = contributorId;
+    if (resolvedContributorId === null && userEmail) {
+      const email = userEmail.trim().toLowerCase();
+      const { rows: found } = await client.query(
+        `SELECT id FROM contributors WHERE LOWER(email) = $1 LIMIT 1`,
+        [email]
+      );
+      if (found.length) {
+        resolvedContributorId = found[0].id;
+      } else {
+        const { rows: inserted } = await client.query(
+          `INSERT INTO contributors (name, email) VALUES (NULL, $1) RETURNING id`,
+          [email]
+        );
+        resolvedContributorId = inserted[0].id;
+      }
+    }
+
+    if (resolvedContributorId !== null) {
       await client.query(
         `INSERT INTO model_contributions (stm_id, contributor_id, contribution_type) VALUES ($1, $2, 'Author')`,
-        [newModelId, contributorId]
+        [newModelId, resolvedContributorId]
       );
     }
 
-    // 3. Copy all states and build old->new state id mapping
+    // 3. Copy all states using a single bulk unnest insert
     const statesRes = await client.query(
       `SELECT id, state_name, vast_state_id, eks_condition_estimate, condition_lower,
               condition_upper, ellictation_type, node_x, node_y
@@ -850,24 +869,51 @@ export async function cloneFromTemplate(templateName: string, newModelName: stri
 
     const stateMap: Record<number, number> = {}; // old state_id -> new state_id
 
-    for (const state of statesRes.rows) {
-      const newStateRes = await client.query(
+    if (statesRes.rows.length > 0) {
+      const bulkStateRes = await client.query(
         `INSERT INTO states (
            stm_name, state_name, vast_state_id, eks_condition_estimate,
            condition_lower, condition_upper, ellictation_type, node_x, node_y
          )
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+         SELECT $1,
+                u.state_name,
+                u.vast_state_id,
+                u.eks_condition_estimate,
+                u.condition_lower,
+                u.condition_upper,
+                u.ellictation_type,
+                u.node_x,
+                u.node_y
+         FROM unnest(
+           $2::text[],
+           $3::int[],
+           $4::numeric[],
+           $5::numeric[],
+           $6::numeric[],
+           $7::text[],
+           $8::numeric[],
+           $9::numeric[]
+         ) AS u(state_name, vast_state_id, eks_condition_estimate,
+                condition_lower, condition_upper, ellictation_type, node_x, node_y)
          RETURNING id`,
         [
-          newModelName, state.state_name, state.vast_state_id, state.eks_condition_estimate,
-          state.condition_lower, state.condition_upper, state.ellictation_type,
-          state.node_x, state.node_y
+          newModelName,
+          statesRes.rows.map(s => s.state_name),
+          statesRes.rows.map(s => s.vast_state_id),
+          statesRes.rows.map(s => s.eks_condition_estimate),
+          statesRes.rows.map(s => s.condition_lower),
+          statesRes.rows.map(s => s.condition_upper),
+          statesRes.rows.map(s => s.ellictation_type),
+          statesRes.rows.map(s => s.node_x),
+          statesRes.rows.map(s => s.node_y),
         ]
       );
-      stateMap[state.id] = newStateRes.rows[0].id;
+      for (let i = 0; i < statesRes.rows.length; i++) {
+        stateMap[statesRes.rows[i].id] = bulkStateRes.rows[i].id;
+      }
     }
 
-    // 4. Copy all transitions and their causal chains
+    // 4. Copy all transitions using a single bulk unnest insert
     const transitionsRes = await client.query(
       `SELECT id, start_state_id, end_state_id, time_25, time_100,
               likelihood_25, likelihood_100, transition_delta
@@ -875,29 +921,59 @@ export async function cloneFromTemplate(templateName: string, newModelName: stri
       [templateName]
     );
 
-    for (const trans of transitionsRes.rows) {
-      const newStartStateId = stateMap[trans.start_state_id];
-      const newEndStateId = stateMap[trans.end_state_id];
+    const transitionIdMap: Record<number, number> = {}; // old transition_id -> new transition_id
 
-      if (!newStartStateId || !newEndStateId) {
-        throw { status: 500, message: `State mapping missing for transition id=${trans.id} in template '${templateName}'` };
+    if (transitionsRes.rows.length > 0) {
+      for (const trans of transitionsRes.rows) {
+        if (!stateMap[trans.start_state_id] || !stateMap[trans.end_state_id]) {
+          throw { status: 500, message: `State mapping missing for transition id=${trans.id} in template '${templateName}'` };
+        }
       }
 
-      const newTransRes = await client.query(
+      const bulkTransRes = await client.query(
         `INSERT INTO transitions (
            stm_name, start_state_id, end_state_id, time_25, time_100,
            likelihood_25, likelihood_100, transition_delta
          )
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         SELECT $1,
+                u.start_state_id,
+                u.end_state_id,
+                u.time_25,
+                u.time_100,
+                u.likelihood_25,
+                u.likelihood_100,
+                u.transition_delta
+         FROM unnest(
+           $2::int[],
+           $3::int[],
+           $4::numeric[],
+           $5::numeric[],
+           $6::numeric[],
+           $7::numeric[],
+           $8::numeric[]
+         ) AS u(start_state_id, end_state_id, time_25, time_100, likelihood_25, likelihood_100, transition_delta)
          RETURNING id`,
         [
-          newModelName, newStartStateId, newEndStateId, trans.time_25, trans.time_100,
-          trans.likelihood_25, trans.likelihood_100, trans.transition_delta
+          newModelName,
+          transitionsRes.rows.map(t => stateMap[t.start_state_id]),
+          transitionsRes.rows.map(t => stateMap[t.end_state_id]),
+          transitionsRes.rows.map(t => t.time_25),
+          transitionsRes.rows.map(t => t.time_100),
+          transitionsRes.rows.map(t => t.likelihood_25),
+          transitionsRes.rows.map(t => t.likelihood_100),
+          transitionsRes.rows.map(t => t.transition_delta),
         ]
       );
-      const newTransId = newTransRes.rows[0].id;
 
-      // 4.1 Copy causal chains for this transition
+      for (let i = 0; i < transitionsRes.rows.length; i++) {
+        transitionIdMap[transitionsRes.rows[i].id] = bulkTransRes.rows[i].id;
+      }
+    }
+
+    // 4.1 Copy causal chains and drivers per transition
+    for (const trans of transitionsRes.rows) {
+      const newTransId = transitionIdMap[trans.id];
+
       const chainsRes = await client.query(
         `SELECT id, name, chain_part FROM causal_chain WHERE transition_id = $1`,
         [trans.id]
@@ -912,7 +988,6 @@ export async function cloneFromTemplate(templateName: string, newModelName: stri
         );
         const newChainId = newChainRes.rows[0].id;
 
-        // 4.1.1 Copy drivers and chain_driver links for this chain
         const driversRes = await client.query(
           `SELECT driver_id FROM chain_driver WHERE causal_chain_id = $1`,
           [chain.id]
