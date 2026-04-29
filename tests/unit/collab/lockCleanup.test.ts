@@ -57,6 +57,19 @@ describe('lockCleanup (#43)', () => {
     });
   });
 
+  it('does not emit lock:released when no locks have expired', async () => {
+    const mockEmit = jest.fn();
+    (mockIo.to as jest.Mock).mockReturnValue({ emit: mockEmit });
+    // cleanupExpiredLocks returns [] — no expired rows
+    mockCleanupExpiredLocks.mockResolvedValueOnce([]);
+
+    startLockCleanupJob(mockIo as unknown as Server);
+    await jest.advanceTimersByTimeAsync(10_000);
+
+    expect(mockIo.to).not.toHaveBeenCalled();
+    expect(mockEmit).not.toHaveBeenCalled();
+  });
+
   it('does not crash the interval on a DB error — next tick still runs', async () => {
     mockCleanupExpiredLocks
       .mockRejectedValueOnce(new Error('DB down'))

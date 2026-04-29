@@ -25,6 +25,7 @@ export function initIo(server: HttpServer, frontendUrl: string): SocketIOServer 
   ].filter((v): v is string => Boolean(v));
 
   ioInstance = new SocketIOServer(server, {
+    transports: ['websocket', 'polling'],
     cors: {
       origin: (origin, callback) => {
         if (!origin) return callback(null, true);

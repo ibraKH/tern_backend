@@ -13,6 +13,16 @@ export const FRONTEND_URL = requireEnv(
 
 export const PRODUCTION_URL = process.env.PRODUCTION_URL || DEFAULT_PRODUCTION_URL;
 
+export const GMAIL_USER = requireEnv(
+  'GMAIL_USER',
+  '[config] GMAIL_USER is required for sending verification emails. Add your Gmail address to .env, e.g. GMAIL_USER=tern.noreply@gmail.com'
+);
+
+export const GMAIL_APP_PASSWORD = requireEnv(
+  'GMAIL_APP_PASSWORD',
+  '[config] GMAIL_APP_PASSWORD is required. Generate one at Google Account → Security → App Passwords.'
+);
+
 export const CORS_ALLOWED_ORIGINS = [
   FRONTEND_URL,
   PRODUCTION_URL,

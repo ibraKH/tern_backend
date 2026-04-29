@@ -4,6 +4,7 @@ export type User = {
   password_hash: string;
   role: 'Admin' | 'Viewer' | 'Editor';
   contributor_id?: number | null;
+  is_verified: boolean;
 };
 
 export type Signup = { 
