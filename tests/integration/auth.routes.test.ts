@@ -8,6 +8,7 @@ jest.mock("../../src/middlewares/rateLimit", () => ({
   limitResendVerification:  (_req: unknown, _res: unknown, next: () => void) => next(),
   limitModelsRead:          (_req: unknown, _res: unknown, next: () => void) => next(),
   limitModelsWrite:         (_req: unknown, _res: unknown, next: () => void) => next(),
+  limitDriversRead:         (_req: unknown, _res: unknown, next: () => void) => next(),
 }));
 
 import request from 'supertest';
