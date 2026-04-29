@@ -525,6 +525,11 @@ describe("model.service", () => {
               peer_reviewed: true,
               no_peer_reviewers: 3,
               climate: "Tropical",
+              is_template: false,
+              is_locked: true,
+              locked_by: 'reviewer@example.com',
+              locked_at: '2026-04-29T00:00:00.000Z',
+              lock_reason: 'Peer reviewed',
             },
           ],
         })
@@ -589,6 +594,9 @@ describe("model.service", () => {
       expect(model?.states[0].attributes[0].attribute_type).toBe("Height");
       expect(model?.transitions[0].causal_chain[0].name).toBe("Fire");
       expect(model?.method_alignment).toBe("Method1");
+      expect(model?.is_locked).toBe(true);
+      expect(model?.locked_by).toBe('reviewer@example.com');
+      expect(model?.lock_reason).toBe('Peer reviewed');
     });
 
     it("returns null when model not found", async () => {
