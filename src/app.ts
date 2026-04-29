@@ -11,6 +11,7 @@ import collabRoutes from './routes/collab';
 import locksRoutes from './routes/locks';
 import driversRoutes from './routes/drivers';
 import notificationsRoutes from './routes/notifications';
+import permissionsRoutes from './routes/permissions';
 import { requireAuth } from "./middlewares/auth.middleware";
 import { errorHandler } from "./middlewares/error.middleware";
 import { requestId } from "./middlewares/requestId.middleware";
@@ -70,8 +71,9 @@ app.use("/docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 // Routes
 app.use('/auth', authRoutes);
-app.use('/models', requireAuth, modelsRoutes);
-app.use('/models', requireAuth, locksRoutes);
+// Chain modelsRoutes, permissionsRoutes, and locksRoutes under one requireAuth call
+// so the middleware only runs once per request regardless of which sub-router handles it.
+app.use('/models', requireAuth, modelsRoutes, permissionsRoutes, locksRoutes);
 app.use('/drivers', requireAuth, driversRoutes);
 app.use('/collab', collabRoutes);
 app.use('/notifications', notificationsRoutes);

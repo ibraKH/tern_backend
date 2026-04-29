@@ -4,6 +4,7 @@ import { saveModel, flagAsTemplate, cloneFromTemplate } from '../services/models
 import { getAllModels, getModelByName, getTemplates } from '../services/models/show.service';
 import { removeModelByName,removeState,removeTransitionByBusinessId } from '../services/models/remove.service';
 import { requireRole } from '../middlewares/role.middleware';
+import { requireModelRole } from '../middlewares/model-permission.middleware';
 import { getAllModelsSchema, getModelByNameSchema } from '../validation/models.validation';
 import { validate } from '../validation/validate';
 import { logActivity } from '../services/collab/activity.service';
@@ -443,7 +444,7 @@ models.get('/templates', limitModelsRead, async (req: Request, res: Response) =>
  *           application/json:
  *             schema: { $ref: '#/components/schemas/ErrorResponse' }
  */
-models.get('/:name', limitModelsRead, requireRole(["Admin", "Editor", "Viewer"]), validate({ params: getModelByNameSchema }), async (req: Request, res: Response) => {
+models.get('/:name', limitModelsRead, requireRole(["Admin", "Editor", "Viewer"]), requireModelRole(['viewer', 'editor', 'reviewer']), validate({ params: getModelByNameSchema }), async (req: Request, res: Response) => {
   try {
     const { name } = req.params;
     const model = await getModelByName(name);
@@ -627,7 +628,7 @@ models.post('/from-template/:name', limitModelsWrite, requireRole(["Admin", "Edi
  *           application/json:
  *             schema: { $ref: '#/components/schemas/ErrorResponse' }
  */
-models.post('/save', limitModelsWrite, requireRole(["Admin", "Editor"]), async (req, res) => {
+models.post('/save', limitModelsWrite, requireRole(["Admin", "Editor"]), requireModelRole(['editor']), async (req, res) => {
   try {
     const modelId = await saveModel(req.body);
     res.status(201).json({ success: true, modelId });
@@ -785,7 +786,7 @@ models.delete('/:name', limitModelsWrite, requireRole(["Admin"]), async (req: Re
  *           application/json:
  *             schema: { $ref: '#/components/schemas/ErrorResponse' }
  */
-models.delete('/:name/states/:stateId', limitModelsWrite, requireRole(["Admin", "Editor"]), async (req: Request, res: Response) => {
+models.delete('/:name/states/:stateId', limitModelsWrite, requireRole(["Admin", "Editor"]), requireModelRole(['editor']), async (req: Request, res: Response) => {
   try {
     const { name, stateId } = req.params as { name: string; stateId: string };
     await removeState(name, Number(stateId));
@@ -868,7 +869,7 @@ models.delete('/:name/states/:stateId', limitModelsWrite, requireRole(["Admin", 
  *           application/json:
  *             schema: { $ref: '#/components/schemas/ErrorResponse' }
  */
-models.delete('/:name/transitions/:transitionId', limitModelsWrite, requireRole(["Admin", "Editor"]), async (req: Request, res: Response) => {
+models.delete('/:name/transitions/:transitionId', limitModelsWrite, requireRole(["Admin", "Editor"]), requireModelRole(['editor']), async (req: Request, res: Response) => {
   try {
     const { name, transitionId } = req.params as { name: string; transitionId: string };
     await removeTransitionByBusinessId(name, Number(transitionId));
