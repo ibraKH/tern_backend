@@ -195,14 +195,12 @@ export function registerCollabHandlers(io: Server): void {
       }
 
       void (async () => {
-        const t0 = Date.now();
         const result = await acquireLock({
           entityType: p!.entityType!,
           entityId: p!.entityId!,
           modelName: p!.modelName!,
           userId: user.uid,
         });
-        console.log(`[perf] lock:acquire db=${Date.now() - t0}ms success=${result.success}`);
 
         if (result.success) {
           cacheLock(p!.modelName!, p!.entityType!, p!.entityId!, user.uid);
@@ -292,7 +290,6 @@ export function registerCollabHandlers(io: Server): void {
       }
 
       void (async () => {
-        const t0 = Date.now();
 
         // Cache-first lock check — skips DB round-trip on warm path.
         const hit = checkCache(p!.modelName!, p!.entityType!, p!.entityId!, user.uid);
@@ -311,9 +308,8 @@ export function registerCollabHandlers(io: Server): void {
           });
           owned = ownership.owned;
           reason = ownership.reason;
+          if (owned) cacheLock(p!.modelName!, p!.entityType!, p!.entityId!, user.uid);
         }
-
-        const t1 = Date.now();
 
         if (!owned) {
           socket.emit('error:patch', { reason });
@@ -341,7 +337,6 @@ export function registerCollabHandlers(io: Server): void {
             value: entry.value,
             userId: user.uid,
           });
-          console.log(`[perf] entity:patch lockCheck=${t1 - t0}ms total=${Date.now() - t0}ms cacheHit=${hit !== null}`);
         }, PATCH_COALESCE_MS);
 
         patchFlush.set(flushKey, { timer, value: p!.value });

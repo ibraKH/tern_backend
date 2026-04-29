@@ -5,6 +5,7 @@ interface CacheEntry {
   expiresAt: number;
 }
 
+// Process-local cache only; multi-instance deployments need a shared lock source.
 const cache = new Map<string, CacheEntry>();
 
 function cacheKey(modelName: string, entityType: string, entityId: number): string {
