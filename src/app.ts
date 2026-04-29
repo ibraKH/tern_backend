@@ -9,6 +9,9 @@ import authRoutes from './routes/auth';
 import modelsRoutes from './routes/models';
 import collabRoutes from './routes/collab';
 import locksRoutes from './routes/locks';
+import driversRoutes from './routes/drivers';
+import notificationsRoutes from './routes/notifications';
+import permissionsRoutes from './routes/permissions';
 import adminRoutes from './routes/admin';
 import { requireAuth } from "./middlewares/auth.middleware";
 import { requireAdmin } from "./middlewares/requireAdmin";
@@ -65,14 +68,15 @@ app.use(cors({
   exposedHeaders: ['X-Request-ID'],
 }));
 
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
 app.use("/docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 // Routes
 app.use('/auth', authRoutes);
-app.use('/models', requireAuth, modelsRoutes);
-app.use('/models', requireAuth, locksRoutes);
+app.use('/models', requireAuth, modelsRoutes, permissionsRoutes, locksRoutes);
+app.use('/drivers', requireAuth, driversRoutes);
 app.use('/collab', collabRoutes);
+app.use('/notifications', notificationsRoutes);
 app.use('/api/admin', requireAuth, requireAdmin, adminRoutes);
 app.get("/openapi.json", (_req, res) => res.json(swaggerSpec));
 

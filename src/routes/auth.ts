@@ -8,6 +8,7 @@ import {
   consumeVerificationToken,
 } from "../services/auth.service";
 import { sendVerificationEmail } from "../services/email.service";
+import { getPendingMentions } from "../services/collab/mentions.service";
 import { signToken } from "../utils/jwt";
 import { validate } from '../validation/validate';
 import {
@@ -275,7 +276,8 @@ auth.post("/login", limitLogin, validate({ body: loginSchema }), async (req: Req
     const user = await authenticate(body);
     if (!user) throw new AuthInvalidError();
     const token = signToken({ uid: user.id, email: user.email, role: user.role });
-    res.json({ token, user: { id: user.id, email: user.email, role: user.role } });
+    const pendingMentions = await getPendingMentions(user.id);
+    res.json({ token, user: { id: user.id, email: user.email, role: user.role }, pendingMentionCount: pendingMentions.length });
   } catch (e: unknown) {
     if (e instanceof AppError) return next(e);
     res.status(500).json({ error: "login failed" });
