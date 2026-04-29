@@ -8,6 +8,15 @@ jest.mock('../../src/services/collab/locks.service', () => ({
   cleanupExpiredLocks: jest.fn().mockResolvedValue([]),
 }));
 
+jest.mock('../../src/services/models/reviewLock.service', () => ({
+  getModelLockStatus: jest.fn().mockResolvedValue({
+    is_locked: false,
+    locked_by: null,
+    locked_at: null,
+    lock_reason: null,
+  }),
+}));
+
 import { createServer, type Server as HttpServer } from 'http';
 import { type AddressInfo } from 'net';
 import type { Server as SocketIOServer } from 'socket.io';
@@ -19,6 +28,7 @@ import { socketAuthMiddleware } from '../../src/collab/auth.middleware';
 import { registerCollabHandlers } from '../../src/collab/socket';
 import { signToken } from '../../src/utils/jwt';
 import * as locksService from '../../src/services/collab/locks.service';
+import * as reviewLockService from '../../src/services/models/reviewLock.service';
 
 let httpServer: HttpServer;
 let ioServer: SocketIOServer;
@@ -238,6 +248,7 @@ describe('Validation errors', () => {
 
 describe('entity:patch — real-time field broadcast with lock validation (#42)', () => {
   const mockCheckLockOwnership = locksService.checkLockOwnership as jest.Mock;
+  const mockGetModelLockStatus = reviewLockService.getModelLockStatus as jest.Mock;
 
   let owner: ClientSocket;
   let observer: ClientSocket;
@@ -246,6 +257,13 @@ describe('entity:patch — real-time field broadcast with lock validation (#42)'
     owner?.disconnect();
     observer?.disconnect();
     await delay(100);
+    mockGetModelLockStatus.mockClear();
+    mockGetModelLockStatus.mockResolvedValue({
+      is_locked: false,
+      locked_by: null,
+      locked_at: null,
+      lock_reason: null,
+    });
     mockCheckLockOwnership.mockClear();
     mockCheckLockOwnership.mockResolvedValue({ owned: false, reason: 'lock_required' });
   });
@@ -331,6 +349,34 @@ describe('entity:patch — real-time field broadcast with lock validation (#42)'
 
     const err = await errPromise;
     expect(err.reason).toBe('lock_expired');
+  });
+
+  it('emits error:patch when the model is review-locked', async () => {
+    mockGetModelLockStatus.mockResolvedValue({
+      is_locked: true,
+      locked_by: 'reviewer@x.com',
+      locked_at: '2026-04-29T00:00:00.000Z',
+      lock_reason: 'Peer reviewed',
+    });
+
+    const token = signToken({ uid: 741, email: 'locked@x.com', role: 'Editor' });
+    owner = connectClient(token);
+    await once(owner, 'connect');
+    owner.emit('room:join', { modelName: 'PatchModelLocked' });
+    await once(owner, 'presence:sync');
+
+    const errPromise = once<{ reason: string; locked_by: string; lock_reason: string }>(owner, 'error:patch');
+    owner.emit('entity:patch', {
+      modelName: 'PatchModelLocked', entityType: 'node', entityId: 1, field: 'name', value: 'X',
+    });
+
+    const err = await errPromise;
+    expect(err).toMatchObject({
+      reason: 'model_locked',
+      locked_by: 'reviewer@x.com',
+      lock_reason: 'Peer reviewed',
+    });
+    expect(mockCheckLockOwnership).not.toHaveBeenCalled();
   });
 
   it('broadcasts entity:patch to all other room members when lock is valid', async () => {
@@ -419,5 +465,49 @@ describe('entity:patch — real-time field broadcast with lock validation (#42)'
 
     await delay(300);
     expect(senderReceivedPatch).toBe(false);
+  });
+});
+
+describe('lock:acquire review-lock guard', () => {
+  const mockAcquireLock = locksService.acquireLock as jest.Mock;
+  const mockGetModelLockStatus = reviewLockService.getModelLockStatus as jest.Mock;
+
+  let owner: ClientSocket;
+
+  afterEach(async () => {
+    owner?.disconnect();
+    await delay(100);
+    mockAcquireLock.mockClear();
+    mockGetModelLockStatus.mockClear();
+    mockGetModelLockStatus.mockResolvedValue({
+      is_locked: false,
+      locked_by: null,
+      locked_at: null,
+      lock_reason: null,
+    });
+  });
+
+  it('emits error:lock when the model is review-locked', async () => {
+    mockGetModelLockStatus.mockResolvedValue({
+      is_locked: true,
+      locked_by: 'admin@x.com',
+      locked_at: '2026-04-29T00:00:00.000Z',
+      lock_reason: 'Peer reviewed',
+    });
+
+    const token = signToken({ uid: 90, email: 'editor@x.com', role: 'Editor' });
+    owner = connectClient(token);
+    await once(owner, 'connect');
+    owner.emit('room:join', { modelName: 'LockedAcquire' });
+    await once(owner, 'presence:sync');
+
+    const errPromise = once<{ reason: string; locked_by: string }>(owner, 'error:lock');
+    owner.emit('lock:acquire', {
+      modelName: 'LockedAcquire', entityType: 'node', entityId: 1,
+    });
+
+    const err = await errPromise;
+    expect(err).toMatchObject({ reason: 'model_locked', locked_by: 'admin@x.com' });
+    expect(mockAcquireLock).not.toHaveBeenCalled();
   });
 });
