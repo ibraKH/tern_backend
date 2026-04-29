@@ -96,4 +96,8 @@ export interface BMRGData {
     transitions: TransitionData[];
     method_alignment?: string | null;
     is_template?: boolean;
+    is_locked?: boolean;
+    locked_by?: string | null;
+    locked_at?: string | null;
+    lock_reason?: string | null;
 }
