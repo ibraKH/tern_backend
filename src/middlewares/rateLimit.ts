@@ -1,6 +1,21 @@
 import { RateLimiterMemory } from "rate-limiter-flexible";
 import type { Request, Response, NextFunction } from "express";
 
+const resendVerificationLimiter = new RateLimiterMemory({
+  points: 3,
+  duration: 60 * 60,
+  blockDuration: 60 * 60,
+});
+
+export function limitResendVerification(req: Request, res: Response, next: NextFunction) {
+  const key = req.ip ?? "unknown";
+  resendVerificationLimiter.consume(key)
+    .then(() => next())
+    .catch(() =>
+      res.status(429).json({ error: "too many resend attempts, please try again in an hour" })
+    );
+}
+
 const signupLimiter = new RateLimiterMemory({
   points: 5,           
   duration: 60 * 10,

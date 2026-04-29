@@ -12,7 +12,9 @@ import locksRoutes from './routes/locks';
 import driversRoutes from './routes/drivers';
 import notificationsRoutes from './routes/notifications';
 import permissionsRoutes from './routes/permissions';
+import adminRoutes from './routes/admin';
 import { requireAuth } from "./middlewares/auth.middleware";
+import { requireAdmin } from "./middlewares/requireAdmin";
 import { errorHandler } from "./middlewares/error.middleware";
 import { requestId } from "./middlewares/requestId.middleware";
 
@@ -71,12 +73,11 @@ app.use("/docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 // Routes
 app.use('/auth', authRoutes);
-// Chain modelsRoutes, permissionsRoutes, and locksRoutes under one requireAuth call
-// so the middleware only runs once per request regardless of which sub-router handles it.
 app.use('/models', requireAuth, modelsRoutes, permissionsRoutes, locksRoutes);
 app.use('/drivers', requireAuth, driversRoutes);
 app.use('/collab', collabRoutes);
 app.use('/notifications', notificationsRoutes);
+app.use('/api/admin', requireAuth, requireAdmin, adminRoutes);
 app.get("/openapi.json", (_req, res) => res.json(swaggerSpec));
 
 // Error handling middleware
@@ -84,7 +85,7 @@ app.use(errorHandler);
 
 // 404 handler
 const frontendUrl = process.env.FRONTEND_URL || 'https://stm-8nizc.ondigitalocean.app';
-app.use((req: Request, res: Response) => {
+app.use((_req: Request, res: Response) => {
   res.redirect(`${frontendUrl}/notfound`);
 });
 

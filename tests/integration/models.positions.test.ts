@@ -163,6 +163,10 @@ jest.mock('../../src/config/database', () => {
       if (text.includes('FROM auth_users') && text.includes('WHERE id = $1')) {
         return { rows: [{ id: 1, email: 'admin@admin.com', role: 'Editor', contributor_id: null }] };
       }
+      // Per-model permission check — grant editor access for test user
+      if (text.includes('FROM model_permissions')) {
+        return { rows: [{ role: 'editor' }] };
+      }
       // Activity logger model lookup (also OK here)
       if (text.includes('SELECT id FROM stmmodel WHERE stm_name')) {
         return { rows: [{ id: store.modelId }] };
