@@ -5,6 +5,7 @@ import { signToken } from "../utils/jwt";
 import { validate } from '../validation/validate';
 import { signupSchema, loginSchema } from '../validation/auth.schemas';
 import { AppError, AuthInvalidError, ConflictError } from "../errors";
+import { getPendingMentions } from "../services/collab/mentions.service";
 import { limitSignup, limitLogin } from "../middlewares/rateLimit";
 
 const auth = express.Router();
@@ -200,7 +201,9 @@ auth.post("/login", limitLogin, validate({ body: loginSchema }), async (req : Re
     const user = await authenticate(body);
     if (!user) throw new AuthInvalidError();
     const token = signToken({ uid: user.id, email: user.email, role: user.role });
-    res.json({ token, user: { id: user.id, email: user.email, role: user.role } });
+    // Fetch pending mention count so the frontend can show a badge immediately on login.
+    const pendingMentions = await getPendingMentions(user.id);
+    res.json({ token, user: { id: user.id, email: user.email, role: user.role }, pendingMentionCount: pendingMentions.length });
   } catch (e: unknown) {
     if (e instanceof AppError) return next(e);
     res.status(500).json({ error: "login failed" });
