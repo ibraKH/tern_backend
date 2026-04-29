@@ -98,6 +98,23 @@ describe('Model lock REST endpoints', () => {
       .send({ lockId: '1' });
     expect(res.status).toBe(401);
   });
+
+  it('GET /models/:name/review-lock returns 401 without token', async () => {
+    const res = await request(app).get('/models/TestModel/review-lock');
+    expect(res.status).toBe(401);
+  });
+
+  it('POST /models/:name/review-lock returns 401 without token', async () => {
+    const res = await request(app)
+      .post('/models/TestModel/review-lock')
+      .send({ reason: 'Peer reviewed' });
+    expect(res.status).toBe(401);
+  });
+
+  it('DELETE /models/:name/review-lock returns 401 without token', async () => {
+    const res = await request(app).delete('/models/TestModel/review-lock');
+    expect(res.status).toBe(401);
+  });
 });
 
 describe('Existing routes still work', () => {
