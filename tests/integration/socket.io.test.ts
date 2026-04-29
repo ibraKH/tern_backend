@@ -246,6 +246,7 @@ describe('entity:patch — real-time field broadcast with lock validation (#42)'
     owner?.disconnect();
     observer?.disconnect();
     await delay(100);
+    mockCheckLockOwnership.mockClear();
     mockCheckLockOwnership.mockResolvedValue({ owned: false, reason: 'lock_required' });
   });
 
@@ -357,6 +358,39 @@ describe('entity:patch — real-time field broadcast with lock validation (#42)'
 
     const patch = await patchPromise;
     expect(patch).toMatchObject({ entityType: 'node', entityId: 1, field: 'name', value: 'NewName', userId: 75 });
+  });
+
+  it('warms the lock cache after a DB ownership check so later patches skip the DB', async () => {
+    mockCheckLockOwnership.mockClear();
+    mockCheckLockOwnership.mockResolvedValue({ owned: true });
+
+    const tokenOwner = signToken({ uid: 79, email: 'cache-owner@x.com', role: 'Editor' });
+    const tokenObs = signToken({ uid: 80, email: 'cache-obs@x.com', role: 'Editor' });
+
+    owner = connectClient(tokenOwner);
+    await once(owner, 'connect');
+    owner.emit('room:join', { modelName: 'PatchCacheWarm' });
+    await once(owner, 'presence:sync');
+
+    observer = connectClient(tokenObs);
+    await once(observer, 'connect');
+    observer.emit('room:join', { modelName: 'PatchCacheWarm' });
+    await once(observer, 'presence:sync');
+
+    const firstPatchPromise = once<{ value: string }>(observer, 'entity:patch');
+    owner.emit('entity:patch', {
+      modelName: 'PatchCacheWarm', entityType: 'node', entityId: 1, field: 'name', value: 'First',
+    });
+    await firstPatchPromise;
+
+    const secondPatchPromise = once<{ value: string }>(observer, 'entity:patch');
+    owner.emit('entity:patch', {
+      modelName: 'PatchCacheWarm', entityType: 'node', entityId: 1, field: 'name', value: 'Second',
+    });
+    const secondPatch = await secondPatchPromise;
+
+    expect(secondPatch.value).toBe('Second');
+    expect(mockCheckLockOwnership).toHaveBeenCalledTimes(1);
   });
 
   it('does not echo entity:patch back to the sender', async () => {

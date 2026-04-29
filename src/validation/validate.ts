@@ -73,7 +73,15 @@ export function validate(schemas: Schemas) {
         req.params = paramsParsed as typeof req.params;
       }
       if (queryParsed !== undefined) {
-        req.query = queryParsed as typeof req.query;
+        // Express 5 defines req.query as a read-only getter on the prototype.
+        // Direct assignment throws TypeError in strict mode, so we override it
+        // on the request instance using defineProperty instead.
+        Object.defineProperty(req, 'query', {
+          value: queryParsed,
+          writable: true,
+          configurable: true,
+          enumerable: true,
+        });
       }
 
       return next();
