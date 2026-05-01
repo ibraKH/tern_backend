@@ -9,9 +9,11 @@ import authRoutes from './routes/auth';
 import modelsRoutes from './routes/models';
 import collabRoutes from './routes/collab';
 import locksRoutes from './routes/locks';
+import adminRouter from './routes/admin';
 import { requireAuth } from "./middlewares/auth.middleware";
 import { errorHandler } from "./middlewares/error.middleware";
 import { requestId } from "./middlewares/requestId.middleware";
+import multer from 'multer';
 
 const app = express();
 
@@ -71,7 +73,27 @@ app.use('/auth', authRoutes);
 app.use('/models', requireAuth, modelsRoutes);
 app.use('/models', requireAuth, locksRoutes);
 app.use('/collab', collabRoutes);
+app.use('/admin', adminRouter);
 app.get("/openapi.json", (_req, res) => res.json(swaggerSpec));
+
+
+// 413 ECONNRESET
+app.use((err: any, req: any, res: any, next: any) => {
+  // multer error handling
+  if (err instanceof multer.MulterError) {
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      return res.status(413).json({ error: 'File too large' });
+    }
+    if (err.code === 'LIMIT_UNEXPECTED_FILE') {
+      return res.status(400).json({ error: 'Unexpected file field' });
+    }
+    return res.status(400).json({ error: err.message });
+  }
+  if (err.message === 'Invalid file type') {
+    return res.status(400).json({ error: 'Invalid file type' });
+  }
+  next(err);
+});
 
 // Error handling middleware
 app.use(errorHandler);
@@ -79,7 +101,10 @@ app.use(errorHandler);
 // 404 handler
 const frontendUrl = process.env.FRONTEND_URL || 'https://stm-8nizc.ondigitalocean.app';
 app.use((req: Request, res: Response) => {
-  res.redirect(`${frontendUrl}/notfound`);
+  res.status(404).json({
+    error: 'Route not found',
+    path: req.originalUrl,
+  });
 });
 
 export default app;

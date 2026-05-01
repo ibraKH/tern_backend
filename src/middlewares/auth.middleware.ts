@@ -2,6 +2,7 @@ import type { Request, Response, NextFunction } from "express";
 import { verifyToken } from "../utils/jwt";
 import pool from "../config/database";
 import type { JwtPayload } from "../utils/jwt";
+import { AuthInvalidError, AppError } from "../errors"; 
 
 interface AuthenticatedRequest extends Request {
   user?: {
@@ -16,7 +17,11 @@ export async function requireAuth(req: AuthenticatedRequest, res: Response, next
   try {
     const auth = req.header("authorization");
     const token = auth?.startsWith("Bearer ") ? auth.slice(7) : undefined;
-    if (!token) return res.status(401).json({ error: "Missing token" });
+    
+    if (!token) {
+      throw new AuthInvalidError(); 
+    }
+
     const payload = verifyToken(token) as JwtPayload; 
 
     const { rows } = await pool.query(
@@ -25,7 +30,10 @@ export async function requireAuth(req: AuthenticatedRequest, res: Response, next
         WHERE id = $1`,
       [payload.uid]
     );
-    if (rows.length === 0) return res.status(401).json({ error: "User associated with this token does not exist" });
+
+    if (rows.length === 0) {
+      throw new AuthInvalidError();
+    }
 
     req.user = {
       id: rows[0].id,
@@ -34,8 +42,11 @@ export async function requireAuth(req: AuthenticatedRequest, res: Response, next
       contributor_id: rows[0].contributor_id,
     };
 
-    return next();
-  } catch (err : unknown) {
-    res.status(401).json({ error: "Cannot authenticate user", details: (err as Error).message || err });
+    next();
+  } catch (err: unknown) {
+    if (err instanceof AppError) {
+      return next(err);
+    }
+        next(new AuthInvalidError());
   }
 }

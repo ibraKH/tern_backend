@@ -1,4 +1,5 @@
 import type { Request, Response, NextFunction } from "express";
+import { AppError } from "../errors";
 
 interface AuthenticatedRequest extends Request {
   user?: {
@@ -11,9 +12,24 @@ interface AuthenticatedRequest extends Request {
 
 export function requireRole(allowed: Array<"Admin" | "Editor" | "Viewer">) {
   return (req: Request, res: Response, next: NextFunction) => {
-    const user = (req as AuthenticatedRequest).user;
-    if (!user) return res.status(401).json({ error: "Unauthenticated" });
-    if (!allowed.includes(user.role)) return res.status(403).json({ error: "Your role is not allowed please contact the admin" });
-    next();
+    try {
+      const user = (req as AuthenticatedRequest).user;
+
+      if (!user) {
+        throw new AppError(401, "AUTH_INVALID_CREDENTIALS", "Authentication required");
+      }
+
+      if (!allowed.includes(user.role)) {
+        throw new AppError(
+          403, 
+          "AUTH_FORBIDDEN", 
+          "Your role is not allowed please contact the admin"
+        );
+      }
+
+      next();
+    } catch (err) {
+      next(err);
+    }
   };
 }
