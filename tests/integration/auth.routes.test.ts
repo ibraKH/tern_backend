@@ -2,6 +2,9 @@ jest.mock("../../src/services/auth.service");
 jest.mock("../../src/services/email.service", () => ({
   sendVerificationEmail: jest.fn().mockResolvedValue(undefined),
 }));
+jest.mock("../../src/services/collab/mentions.service", () => ({
+  getPendingMentions: jest.fn().mockResolvedValue([]),
+}));
 jest.mock("../../src/middlewares/rateLimit", () => ({
   limitSignup:              (_req: unknown, _res: unknown, next: () => void) => next(),
   limitLogin:               (_req: unknown, _res: unknown, next: () => void) => next(),
@@ -14,6 +17,7 @@ jest.mock("../../src/middlewares/rateLimit", () => ({
 import request from 'supertest';
 import app from '../../src/app';
 import * as authService from '../../src/services/auth.service';
+import * as mentionsService from '../../src/services/collab/mentions.service';
 import { ConflictError, AuthInvalidError, AuthUnverifiedError, AuthTokenInvalidError, AuthTokenExpiredError } from '../../src/errors';
 
 const mockGetUserByEmail       = authService.getUserByEmail       as jest.Mock;
@@ -21,6 +25,7 @@ const mockCreateUser           = authService.createUser           as jest.Mock;
 const mockAuthenticate         = authService.authenticate         as jest.Mock;
 const mockCreateVerifToken     = authService.createVerificationToken as jest.Mock;
 const mockConsumeVerifToken    = authService.consumeVerificationToken as jest.Mock;
+const mockGetPendingMentions   = mentionsService.getPendingMentions as jest.Mock;
 
 const verifiedUser = {
   id: 1,
@@ -163,6 +168,7 @@ describe('POST /auth/resend-verification', () => {
 describe('POST /auth/login', () => {
   it('returns JWT on valid credentials', async () => {
     mockAuthenticate.mockResolvedValueOnce(verifiedUser);
+    mockGetPendingMentions.mockResolvedValueOnce([{ id: 10 }, { id: 11 }]);
 
     const res = await request(app)
       .post('/auth/login')
@@ -171,6 +177,8 @@ describe('POST /auth/login', () => {
     expect(res.status).toBe(200);
     expect(typeof res.body.token).toBe('string');
     expect(res.body.user).toMatchObject({ id: 1, email: 'user@example.com' });
+    expect(res.body.pendingMentionCount).toBe(2);
+    expect(mockGetPendingMentions).toHaveBeenCalledWith(1);
   });
 
   it('returns 401 on wrong credentials', async () => {
