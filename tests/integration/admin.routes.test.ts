@@ -65,7 +65,7 @@ jest.mock('../../src/app', () => {
   const { requireAdmin } = require('../../src/middlewares/requireAdmin');
   const { errorHandler } = require('../../src/middlewares/error.middleware');
 
-  app.use('/api/admin', requireAuth, requireAdmin, adminRouter);
+  app.use('/admin', requireAuth, requireAdmin, adminRouter);
   app.use(errorHandler);
 
   return app;
@@ -130,7 +130,7 @@ describe('Admin Routes Integration Tests', () => {
   // ───── ACCESS CONTROL ─────
   describe('Access Control', () => {
     it('returns 401 when no token is provided', async () => {
-      const res = await request(app).get('/api/admin/stats');
+      const res = await request(app).get('/admin/stats');
       expect(res.status).toBe(401);
     });
 
@@ -138,7 +138,7 @@ describe('Admin Routes Integration Tests', () => {
       mockEditorAuth();
 
       const res = await request(app)
-        .get('/api/admin/stats')
+        .get('/admin/stats')
         .set('Authorization', EDITOR_TOKEN);
 
       expect(res.status).toBe(403);
@@ -146,7 +146,7 @@ describe('Admin Routes Integration Tests', () => {
   });
 
   // ───── STATS ─────
-  describe('GET /api/admin/stats', () => {
+  describe('GET /admin/stats', () => {
     it('returns stats correctly', async () => {
       mockAdminAuth();
 
@@ -157,7 +157,7 @@ describe('Admin Routes Integration Tests', () => {
         .mockResolvedValueOnce({ rows: [{ count: 2 }] });
 
       const res = await request(app)
-        .get('/api/admin/stats')
+        .get('/admin/stats')
         .set('Authorization', ADMIN_TOKEN);
 
       expect(res.status).toBe(200);
@@ -165,7 +165,7 @@ describe('Admin Routes Integration Tests', () => {
   });
 
   // ───── ROLE UPDATE ─────
-  describe('PATCH /api/admin/users/:id/role', () => {
+  describe('PATCH /admin/users/:id/role', () => {
     it('updates user role', async () => {
       mockAdminAuth();
 
@@ -177,7 +177,7 @@ describe('Admin Routes Integration Tests', () => {
         .mockResolvedValueOnce({ rows: [] });
 
       const res = await request(app)
-        .patch('/api/admin/users/5/role')
+        .patch('/admin/users/5/role')
         .set('Authorization', ADMIN_TOKEN)
         .send({ role: 'Editor' });
 
@@ -186,7 +186,7 @@ describe('Admin Routes Integration Tests', () => {
   });
 
   // ───── DRIVERS UPLOAD ─────
-  describe('POST /api/admin/drivers/upload', () => {
+  describe('POST /admin/drivers/upload', () => {
     it('uploads valid CSV drivers (upsert)', async () => {
       mockAdminAuth();
 
@@ -194,7 +194,7 @@ describe('Admin Routes Integration Tests', () => {
 Driver1,desc1,cat1`;
 
       const res = await request(app)
-        .post('/api/admin/drivers/upload')
+        .post('/admin/drivers/upload')
         .set('Authorization', ADMIN_TOKEN)
         .attach('file', Buffer.from(csv), {
           filename: 'drivers.csv',
@@ -216,7 +216,7 @@ Driver1,desc1,cat1`;
       }];
 
       const res = await request(app)
-        .post('/api/admin/drivers/upload')
+        .post('/admin/drivers/upload')
         .set('Authorization', ADMIN_TOKEN)
         .attach('file', Buffer.from(JSON.stringify(json)), {
           filename: 'drivers.json',
@@ -226,13 +226,13 @@ Driver1,desc1,cat1`;
       expect(res.status).toBe(200);
     });
 
-    it('rejects malformed CSV (400)', async () => {
+    it('rejects malformed CSV with row number in message (400)', async () => {
       mockAdminAuth();
 
       const badCsv = `name,description\nDriver1,desc1`;
 
       const res = await request(app)
-        .post('/api/admin/drivers/upload')
+        .post('/admin/drivers/upload')
         .set('Authorization', ADMIN_TOKEN)
         .attach('file', Buffer.from(badCsv), {
           filename: 'bad.csv',
@@ -240,6 +240,7 @@ Driver1,desc1,cat1`;
         });
 
       expect(res.status).toBe(400);
+      expect(res.body.message).toMatch(/row 1/i);
     });
 
     it('rejects file > 5MB (413)', async () => {
@@ -248,7 +249,7 @@ Driver1,desc1,cat1`;
       const bigFile = Buffer.alloc(6 * 1024 * 1024);
 
       const res = await request(app)
-        .post('/api/admin/drivers/upload')
+        .post('/admin/drivers/upload')
         .set('Authorization', ADMIN_TOKEN)
         .attach('file', bigFile, {
           filename: 'big.csv',
@@ -258,6 +259,32 @@ Driver1,desc1,cat1`;
       expect(res.status).toBe(413);
     });
 
+    it('rejects unsupported MIME type (400)', async () => {
+      mockAdminAuth();
+
+      const res = await request(app)
+        .post('/admin/drivers/upload')
+        .set('Authorization', ADMIN_TOKEN)
+        .attach('file', Buffer.from('some data'), {
+          filename: 'drivers.txt',
+          contentType: 'text/plain',
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.message).toMatch(/invalid file type/i);
+    });
+
+    it('returns 400 when no file is attached', async () => {
+      mockAdminAuth();
+
+      const res = await request(app)
+        .post('/admin/drivers/upload')
+        .set('Authorization', ADMIN_TOKEN);
+
+      expect(res.status).toBe(400);
+      expect(res.body.message).toMatch(/no file/i);
+    });
+
     it('returns 403 for non-admin users', async () => {
       mockEditorAuth();
 
@@ -265,7 +292,7 @@ Driver1,desc1,cat1`;
 Driver1,desc1,cat1`;
 
       const res = await request(app)
-        .post('/api/admin/drivers/upload')
+        .post('/admin/drivers/upload')
         .set('Authorization', EDITOR_TOKEN)
         .attach('file', Buffer.from(csv), {
           filename: 'drivers.csv',
@@ -276,14 +303,14 @@ Driver1,desc1,cat1`;
   });
 
   // ───── TEMPLATE UPLOAD ─────
-  describe('POST /api/admin/templates/upload', () => {
+  describe('POST /admin/templates/upload', () => {
     it('imports model and marks as template', async () => {
       mockAdminAuth();
 
       const json = { name: 'Template1' };
 
       const res = await request(app)
-        .post('/api/admin/templates/upload')
+        .post('/admin/templates/upload')
         .set('Authorization', ADMIN_TOKEN)
         .attach('file', Buffer.from(JSON.stringify(json)), {
           filename: 'template.json',
@@ -293,13 +320,13 @@ Driver1,desc1,cat1`;
       expect(res.status).toBe(200);
     });
 
-    it('rejects malformed JSON (400)', async () => {
+    it('rejects malformed JSON with descriptive message (400)', async () => {
       mockAdminAuth();
 
       const bad = '{ invalid json }';
 
       const res = await request(app)
-        .post('/api/admin/templates/upload')
+        .post('/admin/templates/upload')
         .set('Authorization', ADMIN_TOKEN)
         .attach('file', Buffer.from(bad), {
           filename: 'template.json',
@@ -307,6 +334,79 @@ Driver1,desc1,cat1`;
         });
 
       expect(res.status).toBe(400);
+      expect(res.body.message).toMatch(/invalid json/i);
+    });
+
+    it('rejects JSON that fails STM schema validation (400)', async () => {
+      mockAdminAuth();
+
+      const invalidSchema = { description: 'missing required name field' };
+
+      const res = await request(app)
+        .post('/admin/templates/upload')
+        .set('Authorization', ADMIN_TOKEN)
+        .attach('file', Buffer.from(JSON.stringify(invalidSchema)), {
+          filename: 'template.json',
+          contentType: 'application/json',
+        });
+
+      expect(res.status).toBe(400);
+    });
+
+    it('rejects text/csv MIME type (400)', async () => {
+      mockAdminAuth();
+
+      const res = await request(app)
+        .post('/admin/templates/upload')
+        .set('Authorization', ADMIN_TOKEN)
+        .attach('file', Buffer.from('name,description\nT1,d1'), {
+          filename: 'template.csv',
+          contentType: 'text/csv',
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.message).toMatch(/invalid file type/i);
+    });
+
+    it('returns 400 when no file is attached', async () => {
+      mockAdminAuth();
+
+      const res = await request(app)
+        .post('/admin/templates/upload')
+        .set('Authorization', ADMIN_TOKEN);
+
+      expect(res.status).toBe(400);
+      expect(res.body.message).toMatch(/no file/i);
+    });
+
+    it('returns 403 for non-admin users', async () => {
+      mockEditorAuth();
+
+      const res = await request(app)
+        .post('/admin/templates/upload')
+        .set('Authorization', EDITOR_TOKEN)
+        .attach('file', Buffer.from(JSON.stringify({ name: 'T1' })), {
+          filename: 'template.json',
+          contentType: 'application/json',
+        });
+
+      expect(res.status).toBe(403);
+    });
+
+    it('rejects file > 5MB (413)', async () => {
+      mockAdminAuth();
+
+      const bigFile = Buffer.alloc(6 * 1024 * 1024);
+
+      const res = await request(app)
+        .post('/admin/templates/upload')
+        .set('Authorization', ADMIN_TOKEN)
+        .attach('file', bigFile, {
+          filename: 'big.json',
+          contentType: 'application/json',
+        });
+
+      expect(res.status).toBe(413);
     });
   });
 });

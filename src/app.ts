@@ -77,7 +77,7 @@ app.use('/models', requireAuth, modelsRoutes, permissionsRoutes, locksRoutes);
 app.use('/drivers', requireAuth, driversRoutes);
 app.use('/collab', collabRoutes);
 app.use('/notifications', notificationsRoutes);
-app.use('/api/admin', requireAuth, requireAdmin, adminRoutes);
+app.use('/admin', requireAuth, requireAdmin, adminRoutes);
 app.use((req, _res, next) => {
   console.log(`[DEBUG ROUTE] ${req.method} ${req.path}`);
   console.log("User:", (req as any).user);
