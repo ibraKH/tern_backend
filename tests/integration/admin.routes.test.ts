@@ -7,7 +7,10 @@ jest.mock('../../src/middlewares/auth.middleware', () => ({
       const { verifyToken } = require('../../src/utils/jwt');
       const pool = require('../../src/config/database').default;
       const payload = verifyToken(token);
-      const result = await pool.query(null, [payload.uid]);
+      const result = await pool.query(
+        'SELECT id, email, role, contributor_id FROM users WHERE id = $1',
+        [payload.uid]
+      );
       if (!result.rows.length) return res.status(401).json({ error: 'User not found' });
       req.user = {
         id: result.rows[0].id,
