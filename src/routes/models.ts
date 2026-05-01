@@ -3,6 +3,7 @@ import express from 'express';
 import { saveModel, flagAsTemplate, cloneFromTemplate } from '../services/models/save.service';
 import { getAllModels, getModelByName, getTemplates } from '../services/models/show.service';
 import { removeModelByName,removeState,removeTransitionByBusinessId } from '../services/models/remove.service';
+import { assertModelUnlocked, getModelLockStatus, lockModelForReview, unlockModelForReview } from '../services/models/reviewLock.service';
 import { requireRole } from '../middlewares/role.middleware';
 import { requireModelRole } from '../middlewares/model-permission.middleware';
 import { getAllModelsSchema, getModelByNameSchema } from '../validation/models.validation';
@@ -272,6 +273,20 @@ const models = express.Router();
  *           type: boolean
  *           nullable: true
  *           description: Whether this model is a template that can be cloned
+ *         is_locked:
+ *           type: boolean
+ *           nullable: true
+ *           description: Whether the model has been permanently review-locked
+ *         locked_by:
+ *           type: string
+ *           nullable: true
+ *         locked_at:
+ *           type: string
+ *           format: date-time
+ *           nullable: true
+ *         lock_reason:
+ *           type: string
+ *           nullable: true
  *
  *     SaveModelResponse:
  *       type: object
@@ -397,6 +412,47 @@ models.get('/templates', limitModelsRead, async (req: Request, res: Response) =>
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: 'Error fetching templates', error });
+  }
+});
+
+models.get('/:name/review-lock', limitModelsRead, requireRole(["Admin", "Editor", "Viewer"]), async (req: Request, res: Response) => {
+  try {
+    const { name } = req.params as { name: string };
+    const status = await getModelLockStatus(name);
+    if (!status) {
+      return res.status(404).json({ message: `Model with name '${name}' not found` });
+    }
+    return res.json(status);
+  } catch (error: unknown) {
+    const status = error && typeof error === 'object' && 'status' in error ? (error as { status: number }).status : 500;
+    const message = error && typeof error === 'object' && 'message' in error ? (error as { message: string }).message : 'Error fetching review lock status';
+    return res.status(status).json({ message });
+  }
+});
+
+models.post('/:name/review-lock', limitModelsWrite, requireRole(["Admin"]), async (req: Request, res: Response) => {
+  try {
+    const { name } = req.params as { name: string };
+    const user = (req as AuthedRequest).user;
+    const { reason } = req.body as { reason?: string };
+    const status = await lockModelForReview(name, user?.email ?? '', reason);
+    return res.json({ success: true, ...status });
+  } catch (error: unknown) {
+    const status = error && typeof error === 'object' && 'status' in error ? (error as { status: number }).status : 500;
+    const message = error && typeof error === 'object' && 'message' in error ? (error as { message: string }).message : 'Error locking model for review';
+    return res.status(status).json({ message });
+  }
+});
+
+models.delete('/:name/review-lock', limitModelsWrite, requireRole(["Admin"]), async (req: Request, res: Response) => {
+  try {
+    const { name } = req.params as { name: string };
+    const status = await unlockModelForReview(name);
+    return res.json({ success: true, ...status });
+  } catch (error: unknown) {
+    const status = error && typeof error === 'object' && 'status' in error ? (error as { status: number }).status : 500;
+    const message = error && typeof error === 'object' && 'message' in error ? (error as { message: string }).message : 'Error unlocking model for review';
+    return res.status(status).json({ message });
   }
 });
 
@@ -647,7 +703,9 @@ models.post('/save', limitModelsWrite, requireRole(["Admin", "Editor"]), require
       try { broadcastActivity(io, roomKey, entry); } catch { /* Socket.IO may not be initialized in tests */ }
     }
   } catch (error : unknown) {
-    res.status(500).json({ message: 'Error saving model', error });
+    const status = error && typeof error === 'object' && 'status' in error ? (error as { status: number }).status : 500;
+    const message = error && typeof error === 'object' && 'message' in error ? (error as { message: string }).message : 'Error saving model';
+    res.status(status).json({ message });
   }
 });
 
@@ -711,6 +769,7 @@ models.post('/save', limitModelsWrite, requireRole(["Admin", "Editor"]), require
 models.delete('/:name', limitModelsWrite, requireRole(["Admin"]), async (req: Request, res: Response) => {
   try {
     const { name } = req.params as { name: string };
+    await assertModelUnlocked(name);
 
     // Log activity before delete (model will be gone after).
     const user = (req as AuthedRequest).user;
@@ -721,7 +780,9 @@ models.delete('/:name', limitModelsWrite, requireRole(["Admin"]), async (req: Re
     const r = await removeModelByName(name);
     res.json({ success: true, ...r });
   } catch (error: unknown) {
-    res.status(500).json({ message: 'Error removing model', error: String(error) });
+    const status = error && typeof error === 'object' && 'status' in error ? (error as { status: number }).status : 500;
+    const message = error && typeof error === 'object' && 'message' in error ? (error as { message: string }).message : 'Error removing model';
+    res.status(status).json({ message });
   }
 });
 
@@ -789,6 +850,7 @@ models.delete('/:name', limitModelsWrite, requireRole(["Admin"]), async (req: Re
 models.delete('/:name/states/:stateId', limitModelsWrite, requireRole(["Admin", "Editor"]), requireModelRole(['editor']), async (req: Request, res: Response) => {
   try {
     const { name, stateId } = req.params as { name: string; stateId: string };
+    await assertModelUnlocked(name);
     await removeState(name, Number(stateId));
     res.json({ success: true });
 
@@ -804,7 +866,9 @@ models.delete('/:name/states/:stateId', limitModelsWrite, requireRole(["Admin", 
       } catch { /* no-op if io not initialized */ }
     }
   } catch (error: unknown) {
-    res.status(500).json({ message: 'Error removing state', error: String(error) });
+    const status = error && typeof error === 'object' && 'status' in error ? (error as { status: number }).status : 500;
+    const message = error && typeof error === 'object' && 'message' in error ? (error as { message: string }).message : 'Error removing state';
+    res.status(status).json({ message });
   }
 });
 
@@ -872,6 +936,7 @@ models.delete('/:name/states/:stateId', limitModelsWrite, requireRole(["Admin", 
 models.delete('/:name/transitions/:transitionId', limitModelsWrite, requireRole(["Admin", "Editor"]), requireModelRole(['editor']), async (req: Request, res: Response) => {
   try {
     const { name, transitionId } = req.params as { name: string; transitionId: string };
+    await assertModelUnlocked(name);
     await removeTransitionByBusinessId(name, Number(transitionId));
     res.json({ success: true });
 
@@ -887,7 +952,9 @@ models.delete('/:name/transitions/:transitionId', limitModelsWrite, requireRole(
       } catch { /* no-op */ }
     }
   } catch (error: unknown) {
-    res.status(500).json({ message: 'Error removing transition', error: String(error) });
+    const status = error && typeof error === 'object' && 'status' in error ? (error as { status: number }).status : 500;
+    const message = error && typeof error === 'object' && 'message' in error ? (error as { message: string }).message : 'Error removing transition';
+    res.status(status).json({ message });
   }
 });
 
@@ -961,6 +1028,7 @@ models.patch('/:name/template', limitModelsWrite, async (req: Request, res: Resp
     const { flag } = req.body;
     const user = (req as AuthedRequest).user;
 
+    await assertModelUnlocked(name);
     await flagAsTemplate(name, flag, user?.role ?? '', user?.email ?? '');
     res.json({ success: true });
 

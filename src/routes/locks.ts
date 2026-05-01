@@ -3,6 +3,7 @@ import type { Request, Response } from 'express';
 
 import { requireAuth } from '../middlewares/auth.middleware';
 import pool from '../config/database';
+import { getModelLockStatus } from '../services/models/reviewLock.service';
 
 type AuthedRequest = Request & { user?: { id: number; email: string; role: string } };
 
@@ -19,6 +20,11 @@ locks.post('/:name/lock/acquire', requireAuth, async (req: Request, res: Respons
   const { name } = req.params as { name: string };
 
   try {
+    const reviewLock = await getModelLockStatus(name);
+    if (reviewLock?.is_locked) {
+      return res.status(403).json({ error: 'Model is locked for review', ...reviewLock });
+    }
+
     const modelRes = await pool.query<{ id: number }>('SELECT id FROM stmmodel WHERE stm_name = $1', [name]);
     if (modelRes.rows.length === 0) return res.status(404).json({ error: 'Model not found' });
     const modelId = modelRes.rows[0].id;
@@ -95,10 +101,16 @@ locks.post('/:name/lock/acquire', requireAuth, async (req: Request, res: Respons
  */
 locks.post('/:name/lock/renew', requireAuth, async (req: Request, res: Response) => {
   const user = (req as AuthedRequest).user!;
+  const { name } = req.params as { name: string };
   const { lockId } = req.body as { lockId?: string };
   if (!lockId) return res.status(400).json({ error: 'lockId is required' });
 
   try {
+    const reviewLock = await getModelLockStatus(name);
+    if (reviewLock?.is_locked) {
+      return res.status(403).json({ error: 'Model is locked for review', ...reviewLock });
+    }
+
     const result = await pool.query<{ id: number; expires_at: string }>(
       `UPDATE collab_locks SET expires_at = NOW() + INTERVAL '${LOCK_TTL_SECONDS} seconds', locked_at = NOW()
        WHERE id = $1 AND user_id = $2

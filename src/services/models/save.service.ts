@@ -2,6 +2,7 @@ import pool from '../../config/database';
 import type { BMRGData, Contributor, StateData, TransitionData } from '../../types/models.types';
 import type { PoolClient } from 'pg';
 import { calcTransitionDelta } from '../../utils/transition.utils';
+import { assertModelUnlocked, assertModelUnlockedById } from './reviewLock.service';
 
 // ---------- Utility functions ----------
 export function normalizeReleaseDate(release_date?: string): string | null {
@@ -699,17 +700,26 @@ export async function saveModel(modelData: BMRGData) {
   try {
     await client.query('BEGIN');
 
+    let stmName = typeof modelData.stm_name === 'string' ? modelData.stm_name.trim() : '';
+    if (modelData.id) {
+      const existingName = await assertModelUnlockedById(modelData.id, client);
+      if (!stmName && existingName) {
+        stmName = existingName;
+      }
+    } else if (stmName) {
+      await assertModelUnlocked(stmName, client);
+    }
+
     // 1. Upsert main model
     const modelId = await upsertModelMetadata(client, modelData);
     // If stm_name not provided in modelData, fetch it from the database using modelId
-    let stm_name = modelData.stm_name;
-    if (!stm_name || stm_name.trim() === "") {
+    if (!stmName) {
       const res = await client.query(
         `SELECT stm_name FROM stmmodel WHERE id = $1`,
         [modelId]
       );
       if (res.rows.length > 0) {
-        stm_name = res.rows[0].stm_name;
+        stmName = res.rows[0].stm_name;
       } else {
         throw new Error(`stm_name not found for model id ${modelId}`);
       }
@@ -721,11 +731,11 @@ export async function saveModel(modelData: BMRGData) {
     // 3. Upsert states & vast_states & state_attributes
     let stateMap: Record<number, number> = {};
     if (modelData.states != undefined && modelData.states != null) {
-      stateMap = await upsertStates(client, stm_name, modelData.states);
+      stateMap = await upsertStates(client, stmName, modelData.states);
     }
     // 4. Upsert transitions & causal_chain & drivers
     if (modelData.transitions != undefined && modelData.transitions != null) {
-      await upsertTransitions(client, stm_name, modelData.transitions, stateMap);
+      await upsertTransitions(client, stmName, modelData.transitions, stateMap);
     }
 
     // // 5. Save method_alignment（it's "None" and it don't insert for now)
