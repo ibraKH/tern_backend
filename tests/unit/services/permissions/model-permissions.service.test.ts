@@ -26,10 +26,18 @@ describe('getModelRole', () => {
     );
   });
 
-  it('returns null when no record exists', async () => {
+  it('returns null when no record exists and model is not a template', async () => {
     mockQuery.mockResolvedValueOnce({ rows: [] });
+    mockQuery.mockResolvedValueOnce({ rows: [{ is_template: false }] });
     const result = await getModelRole('ModelA', 'nobody@example.com');
     expect(result).toBeNull();
+  });
+
+  it("returns 'viewer' when no record exists but model is a template", async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    mockQuery.mockResolvedValueOnce({ rows: [{ is_template: true }] });
+    const result = await getModelRole('TemplateModel', 'nobody@example.com');
+    expect(result).toBe('viewer');
   });
 });
 

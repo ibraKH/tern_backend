@@ -1,7 +1,8 @@
 import pool from '../../config/database';
 import type { ModelPermission, ModelRole } from '../../types/permissions.types';
 
-/** Returns the model-level role for a user, or null if no record exists. */
+/** Returns the model-level role for a user, or null if no record exists.
+ *  Template models implicitly grant 'viewer' to every authenticated user. */
 export async function getModelRole(
   stmName: string,
   userEmail: string,
@@ -10,7 +11,15 @@ export async function getModelRole(
     'SELECT role FROM model_permissions WHERE stm_name = $1 AND user_email = $2',
     [stmName, userEmail],
   );
-  return rows[0]?.role ?? null;
+  if (rows[0]?.role) return rows[0].role;
+
+  const { rows: templateRows } = await pool.query<{ is_template: boolean }>(
+    'SELECT is_template FROM stmmodel WHERE stm_name = $1',
+    [stmName],
+  );
+  if (templateRows[0]?.is_template) return 'viewer';
+
+  return null;
 }
 
 /** Lists every permission record for a model (Admin-only view). */
