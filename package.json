@@ -24,7 +24,6 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
-    "@types/multer": "^2.1.0",
     "bcrypt": "^6.0.0",
     "body-parser": "^2.2.0",
     "cors": "^2.8.5",
@@ -46,6 +45,7 @@
   "devDependencies": {
     "@eslint/js": "^9.37.0",
     "@types/bcrypt": "^6.0.0",
+    "@types/multer": "^2.1.0",
     "@types/body-parser": "^1.19.6",
     "@types/cors": "^2.8.19",
     "@types/csv-parse": "^1.1.12",

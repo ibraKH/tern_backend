@@ -51,6 +51,7 @@ export async function handleTemplateUpload(file?: Express.Multer.File) {
   const modelData: BMRGData = {
     ...(parsed as unknown as BMRGData),
     stm_name: stmName,
+    is_template: true,
   };
   delete (modelData as unknown as { id?: unknown }).id;
 
@@ -59,11 +60,6 @@ export async function handleTemplateUpload(file?: Express.Multer.File) {
   }
 
   await saveModel(modelData);
-
-  await pool.query(
-    'UPDATE stmmodel SET is_template = TRUE WHERE stm_name = $1',
-    [stmName]
-  );
 
   return { message: 'Template uploaded successfully' };
 }

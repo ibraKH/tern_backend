@@ -206,9 +206,9 @@ const stmModelUploadSchema = z
     region_id: z.number().int(),
     climate: z.string().min(1),
     ecosystem_type: z.string().min(1),
-    aus_eco_archetype_code: z.union([z.number().int(), z.string().transform((v) => Number(v))]),
+    aus_eco_archetype_code: z.union([z.number().int(), z.string().regex(/^-?\d+$/, 'Must be an integer').transform(Number)]),
     aus_eco_archetype_name: z.string().min(1),
-    aus_eco_umbrella_code: z.union([z.number().int(), z.string().transform((v) => Number(v))]),
+    aus_eco_umbrella_code: z.union([z.number().int(), z.string().regex(/^-?\d+$/, 'Must be an integer').transform(Number)]),
     peer_reviewed: z.string().min(1),
     no_peer_reviewers: z.number().int(),
 

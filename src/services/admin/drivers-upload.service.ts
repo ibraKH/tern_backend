@@ -1,5 +1,6 @@
 import { parse } from 'csv-parse/sync';
 import pool from '../../config/database';
+import type { PoolClient } from 'pg';
 import { AppError } from '../../errors';
 import { ZodError } from 'zod';
 import { validateDriverJSON } from '../../validation/validate';
@@ -41,17 +42,31 @@ async function handleCSVUpload(buffer: Buffer) {
     });
   }
 
-  for (const [index, record] of records.entries()) {
-    const name = record.name;
-    const description = record.description;
-    const category = record.category;
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
 
-    if (!name || !description || !category) {
-      // +2 because row 1 is header line when columns: true
-      throw new AppError(400, 'VALIDATION_ERROR', `Malformed CSV at row ${index + 2}`);
+    for (const [index, record] of records.entries()) {
+      const name = record.name;
+
+      if (!name) {
+        // +2 because row 1 is header line when columns: true
+        throw new AppError(400, 'VALIDATION_ERROR', `Malformed CSV at row ${index + 2}`);
+      }
+
+      await upsertDriver(client, {
+        name,
+        description: record.description || null,
+        category: record.category || null,
+      });
     }
 
-    await upsertDriver({ name, description, category });
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
   }
 
   return { message: 'Drivers uploaded successfully' };
@@ -81,26 +96,41 @@ async function handleJSONUpload(buffer: Buffer) {
     throw err;
   }
 
-  for (const driver of parsed) {
-    const driverId = await upsertDriver({
-      name: driver.name,
-      description: driver.description ?? '',
-      category: driver.category ?? '',
-    });
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
 
-    for (const subDriver of driver.sub_drivers ?? []) {
-      await upsertSubDriver({
-        managementDriverId: driverId,
-        driverType: subDriver.name,
-        driverDescription: subDriver.description ?? null,
+    for (const driver of parsed) {
+      const driverId = await upsertDriver(client, {
+        name: driver.name,
+        description: driver.description ?? null,
+        category: driver.category ?? null,
       });
+
+      for (const subDriver of driver.sub_drivers ?? []) {
+        await upsertSubDriver(client, {
+          managementDriverId: driverId,
+          driverType: subDriver.name,
+          driverDescription: subDriver.description ?? null,
+        });
+      }
     }
+
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
   }
 
   return { message: 'Drivers uploaded successfully' };
 }
 
-async function upsertDriver(input: { name: string; description: string; category: string }): Promise<number> {
+async function upsertDriver(
+  client: Pick<PoolClient, 'query'>,
+  input: { name: string; description: string | null; category: string | null },
+): Promise<number> {
   const driver = input.name.trim();
   const description = input.description?.trim() || null;
   const driverGroup = input.category?.trim() || null;
@@ -110,7 +140,7 @@ async function upsertDriver(input: { name: string; description: string; category
   }
 
   // Avoid ON CONFLICT: this works even if there is no UNIQUE constraint.
-  const { rows } = await pool.query<{ id: number }>(
+  const { rows } = await client.query<{ id: number }>(
     `WITH updated AS (
        UPDATE drivers
           SET description = $2,
@@ -139,7 +169,10 @@ async function upsertDriver(input: { name: string; description: string; category
   return id;
 }
 
-async function upsertSubDriver(input: { managementDriverId: number; driverType: string; driverDescription: string | null }): Promise<number> {
+async function upsertSubDriver(
+  client: Pick<PoolClient, 'query'>,
+  input: { managementDriverId: number; driverType: string; driverDescription: string | null },
+): Promise<number> {
   const managementDriverId = input.managementDriverId;
   const driverType = input.driverType.trim();
   const driverDescription = input.driverDescription;
@@ -148,7 +181,7 @@ async function upsertSubDriver(input: { managementDriverId: number; driverType: 
     throw new AppError(400, 'VALIDATION_ERROR', 'Invalid sub-driver name');
   }
 
-  const { rows } = await pool.query<{ id: number }>(
+  const { rows } = await client.query<{ id: number }>(
     `WITH updated AS (
        UPDATE sub_drivers
           SET driver_description = $3

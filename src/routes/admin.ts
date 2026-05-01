@@ -6,7 +6,7 @@ import pool from "../config/database";
 import { logAction } from "../utils/auditLog";
 import { requireRole } from "../middlewares/role.middleware";
 import { handleDriverUpload } from "../services/admin/drivers-upload.service";
-import { handleTemplateUpload } from "../services/admin/template-upload.service"; // Ensure this file exists
+import { handleTemplateUpload } from "../services/admin/template-upload.service";
 
 const adminRouter = express.Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } }); // 5 MB limit

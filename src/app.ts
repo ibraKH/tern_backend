@@ -78,11 +78,14 @@ app.use('/drivers', requireAuth, driversRoutes);
 app.use('/collab', collabRoutes);
 app.use('/notifications', notificationsRoutes);
 app.use('/admin', requireAuth, requireAdmin, adminRoutes);
-app.use((req, _res, next) => {
-  console.log(`[DEBUG ROUTE] ${req.method} ${req.path}`);
-  console.log("User:", (req as any).user);
-  next();
-});
+if (process.env.NODE_ENV !== 'production' && process.env.DEBUG_ROUTES === 'true') {
+   app.use((req, _res, next) => {
+     console.log(`[DEBUG ROUTE] ${req.method} ${req.path}`, {
+       authenticated: Boolean((req as any).user),
+     });
+     next();
+   });
+ }
 app.get("/openapi.json", (_req, res) => res.json(swaggerSpec));
 
 // Error handling middleware

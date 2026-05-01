@@ -135,6 +135,9 @@ describe('Admin Routes Integration Tests', () => {
       query: mockQuery,
       release: jest.fn(),
     });
+
+    // Default fallback so BEGIN/COMMIT/ROLLBACK and other unqueued calls resolve cleanly.
+    mockQuery.mockResolvedValue({ rows: [], rowCount: 0 });
   });
 
   // ───── ACCESS CONTROL ─────
@@ -199,7 +202,8 @@ describe('Admin Routes Integration Tests', () => {
   describe('POST /admin/drivers/upload', () => {
     it('uploads valid CSV drivers (upsert)', async () => {
       mockAdminAuth();
-      mockQuery.mockResolvedValueOnce({ rows: [{ id: 1 }] });
+      mockQuery.mockResolvedValueOnce({ rows: [] }); // BEGIN
+      mockQuery.mockResolvedValueOnce({ rows: [{ id: 1 }] }); // upsertDriver
 
       const csv = `name,description,category
 Driver1,desc1,cat1`;
@@ -218,8 +222,9 @@ Driver1,desc1,cat1`;
     it('uploads valid JSON nested structure', async () => {
       mockAdminAuth();
       mockQuery
-        .mockResolvedValueOnce({ rows: [{ id: 1 }] })
-        .mockResolvedValueOnce({ rows: [{ id: 2 }] });
+        .mockResolvedValueOnce({ rows: [] }) // BEGIN
+        .mockResolvedValueOnce({ rows: [{ id: 1 }] }) // upsertDriver
+        .mockResolvedValueOnce({ rows: [{ id: 2 }] }); // upsertSubDriver
 
       const json = [{
         name: 'Driver1',
@@ -241,8 +246,9 @@ Driver1,desc1,cat1`;
 
     it('rejects malformed CSV with row number in message (400)', async () => {
       mockAdminAuth();
+      mockQuery.mockResolvedValueOnce({ rows: [] }); // BEGIN (ROLLBACK uses default)
 
-      const badCsv = `name,description\nDriver1,desc1`;
+      const badCsv = `name,description\n,desc1`; // empty name triggers row 2 error
 
       const res = await request(app)
         .post('/admin/drivers/upload')
@@ -342,7 +348,6 @@ Driver1,desc1,cat1`;
       mockQuery.mockImplementation(async (text: unknown) => {
         if (typeof text !== 'string') return { rows: [] };
         if (/^SELECT id FROM stmmodel WHERE stm_name/i.test(text)) return { rows: [] };
-        if (/^UPDATE stmmodel SET is_template/i.test(text)) return { rows: [] };
         if (text === 'BEGIN' || text === 'COMMIT' || text === 'ROLLBACK') return { rows: [] };
         if (/SELECT stm_name, is_locked/i.test(text)) return { rows: [] };
         if (/INSERT INTO stmmodel/i.test(text)) return { rows: [{ id: 123 }] };

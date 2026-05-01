@@ -126,6 +126,7 @@ export async function upsertModelMetadata(client: Pick<PoolClient, 'query'>, mod
       peer_reviewed,
       no_peer_reviewers,
       climate,
+      is_template: modelData.is_template,
     });
 
     return modelUpdate as number;
@@ -143,13 +144,14 @@ export async function upsertModelMetadata(client: Pick<PoolClient, 'query'>, mod
       modelResult = await client.query(
         `INSERT INTO stmmodel (
             stm_name, version, release_date, authorised_by, region, region_id, ecosystem_type,
-            aus_eco_archetype_code, aus_eco_archetype_name, aus_eco_umbrella_code, peer_reviewed, no_peer_reviewers, climate
+            aus_eco_archetype_code, aus_eco_archetype_name, aus_eco_umbrella_code, peer_reviewed, no_peer_reviewers, climate, is_template
           )
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
           RETURNING id`,
         [
           stm_name, version, normalizedReleaseDate, authorised_by, region, region_id, ecosystem_type,
-          aus_eco_archetype_code, aus_eco_archetype_name, aus_eco_umbrella_code, peer_reviewed, no_peer_reviewers, climate
+          aus_eco_archetype_code, aus_eco_archetype_name, aus_eco_umbrella_code, peer_reviewed, no_peer_reviewers, climate,
+          modelData.is_template ?? false,
         ]
       );
     } catch (err: unknown) {
