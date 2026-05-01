@@ -13,15 +13,15 @@ export const FRONTEND_URL = requireEnv(
 
 export const PRODUCTION_URL = process.env.PRODUCTION_URL || DEFAULT_PRODUCTION_URL;
 
-export const GMAIL_USER = requireEnv(
-  'GMAIL_USER',
-  '[config] GMAIL_USER is required for sending verification emails. Add your Gmail address to .env, e.g. GMAIL_USER=tern.noreply@gmail.com'
-);
+const isProduction = process.env.NODE_ENV === 'production';
 
-export const GMAIL_APP_PASSWORD = requireEnv(
-  'GMAIL_APP_PASSWORD',
-  '[config] GMAIL_APP_PASSWORD is required. Generate one at Google Account → Security → App Passwords.'
-);
+export const GMAIL_USER = isProduction
+  ? requireEnv('GMAIL_USER', '[config] GMAIL_USER is required in production. Add your Gmail address to .env.')
+  : (process.env.GMAIL_USER ?? '');
+
+export const GMAIL_APP_PASSWORD = isProduction
+  ? requireEnv('GMAIL_APP_PASSWORD', '[config] GMAIL_APP_PASSWORD is required in production. Generate one at Google Account → Security → App Passwords.')
+  : (process.env.GMAIL_APP_PASSWORD ?? '');
 
 export const CORS_ALLOWED_ORIGINS = [
   FRONTEND_URL,

@@ -220,6 +220,9 @@ describe('review lock routes and save enforcement', () => {
       if (text.includes('INSERT INTO collab_activity')) {
         return { rows: [] };
       }
+      if (text.includes('FROM model_permissions') && text.includes('WHERE stm_name = $1 AND user_email = $2')) {
+        return { rows: [{ role: 'editor' }] };
+      }
       return { rows: [] };
     });
 
