@@ -126,3 +126,12 @@ export function getSocketIdsByUserId(userId: number): string[] {
 export function broadcastActivity(io: Server, roomKey: string, entry: ActivityEntry): void {
   io.to(roomKey).emit('activity:new', { entry });
 }
+
+/** Count unique users currently connected across all rooms. */
+export function getConnectedUserCount(): number {
+  const seen = new Set<string>();
+  for (const room of rooms.values()) {
+    for (const key of room.users.keys()) seen.add(key);
+  }
+  return seen.size;
+}

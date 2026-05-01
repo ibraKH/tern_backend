@@ -3,6 +3,7 @@ import express from "express";
 import { RateLimiterMemory } from "rate-limiter-flexible";
 import pool from "../config/database";
 import { logAction } from "../utils/auditLog";
+import { getConnectedUserCount } from "../collab/roomManager";
 
 const adminRouter = express.Router();
 
@@ -31,18 +32,17 @@ adminRouter.use((req: Request, res: Response, next) => {
 // --- GET /api/admin/stats ---
 adminRouter.get("/stats", async (req: Request, res: Response) => {
   try {
-    const [total, verified, unverified, sessions] = await Promise.all([
+    const [total, verified, unverified] = await Promise.all([
       pool.query(`SELECT COUNT(*)::int AS count FROM auth_users`),
       pool.query(`SELECT COUNT(*)::int AS count FROM auth_users WHERE is_verified = true`),
       pool.query(`SELECT COUNT(*)::int AS count FROM auth_users WHERE is_verified = false`),
-      pool.query(`SELECT COUNT(*)::int AS count FROM sessions WHERE expires_at > NOW()`),
     ]);
 
     res.json({
       totalUsers: total.rows[0].count,
       verifiedUsers: verified.rows[0].count,
       unverifiedUsers: unverified.rows[0].count,
-      activeSessions: sessions.rows[0].count,
+      activeSessions: getConnectedUserCount(),
     });
   } catch (err) {
     console.error("[GET /api/admin/stats]", err);
