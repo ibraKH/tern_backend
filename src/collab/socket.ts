@@ -4,6 +4,7 @@ import { joinRoom, leaveRoom, getRoom, getUserColor } from './roomManager';
 import type { SocketAuthedUser } from './auth.middleware';
 import { getRecentActivity } from '../services/collab/activity.service';
 import { acquireLock, releaseLock, releaseAllLocksForUser, checkLockOwnership } from '../services/collab/locks.service';
+import { getModelLockStatus } from '../services/models/reviewLock.service';
 import { cacheLock, evictLock, evictLocksForUser, checkCache } from './lockCache';
 
 export const COLLAB_THROTTLE_MS = 50;
@@ -195,6 +196,16 @@ export function registerCollabHandlers(io: Server): void {
       }
 
       void (async () => {
+        const modelLock = await getModelLockStatus(p!.modelName!);
+        if (modelLock?.is_locked) {
+          socket.emit('error:lock', {
+            reason: 'model_locked',
+            message: 'Model is locked for review',
+            ...modelLock,
+          });
+          return;
+        }
+
         const result = await acquireLock({
           entityType: p!.entityType!,
           entityId: p!.entityId!,
@@ -292,6 +303,16 @@ export function registerCollabHandlers(io: Server): void {
       void (async () => {
 
         // Cache-first lock check — skips DB round-trip on warm path.
+        const modelLock = await getModelLockStatus(p!.modelName!);
+        if (modelLock?.is_locked) {
+          socket.emit('error:patch', {
+            reason: 'model_locked',
+            message: 'Model is locked for review',
+            ...modelLock,
+          });
+          return;
+        }
+
         const hit = checkCache(p!.modelName!, p!.entityType!, p!.entityId!, user.uid);
         let owned: boolean;
         let reason: string | undefined;

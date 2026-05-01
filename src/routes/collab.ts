@@ -227,7 +227,9 @@ collab.post(
       return res.json({ message: 'Model restored' });
     } catch (err: unknown) {
       console.error('[collab] restore failed:', err);
-      return res.status(500).json({ error: 'Failed to restore model' });
+      const status = (err as { status?: number }).status ?? 500;
+      const message = (err as { message?: string }).message ?? 'Failed to restore model';
+      return res.status(status).json({ error: message });
     }
   }
 );

@@ -15,6 +15,7 @@
     "migrate:up": "node-pg-migrate up -m migrations -f database.json --config-value dev --envPath .env",
     "migrate:down": "node-pg-migrate down -m migrations -f database.json --config-value dev --envPath .env",
     "migrate:status": "node-pg-migrate status -m migrations -f database.json --config-value dev --envPath .env",
+    "migrate:up:prod": "node-pg-migrate up -m migrations -f database.json --config-value production",
     "lint": "eslint . --ext .js,.ts --cache",
     "lint:fix": "eslint . --ext .js,.ts --fix --cache"
   },
@@ -33,6 +34,7 @@
     "helmet": "^8.1.0",
     "jsonwebtoken": "^9.0.2",
     "multer": "^2.1.1",
+    "node-pg-migrate": "^8.0.3",
     "nodemailer": "^8.0.5",
     "pg": "^8.16.3",
     "rate-limiter-flexible": "^8.1.0",
@@ -64,7 +66,6 @@
     "globals": "^16.4.0",
     "jest": "^30.2.0",
     "jiti": "^2.6.1",
-    "node-pg-migrate": "^8.0.3",
     "nodemon": "^3.1.10",
     "socket.io-client": "^4.8.3",
     "supertest": "^7.1.4",

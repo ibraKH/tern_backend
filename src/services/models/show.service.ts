@@ -39,7 +39,8 @@ export async function getModelByName(name: string): Promise<BMRGData | null> {
               region, region_id, ecosystem_type,
               aus_eco_archetype_code, aus_eco_archetype_name,
               aus_eco_umbrella_code, peer_reviewed,
-              no_peer_reviewers, climate, is_template
+              no_peer_reviewers, climate, is_template,
+              is_locked, locked_by, locked_at, lock_reason
        FROM stmmodel
        WHERE stm_name = $1`,
       [name]
@@ -185,6 +186,10 @@ export async function getModelByName(name: string): Promise<BMRGData | null> {
       transitions,
       method_alignment: methodRes.rows[0]?.method_name || '',
       is_template: row.is_template,
+      is_locked: row.is_locked,
+      locked_by: row.locked_by,
+      locked_at: row.locked_at ? String(row.locked_at) : null,
+      lock_reason: row.lock_reason,
     };
 
     return model;

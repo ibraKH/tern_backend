@@ -9,11 +9,11 @@ RUN npm run build
 FROM node:20-bookworm-slim AS migrate
 WORKDIR /app
 COPY package*.json ./
-RUN npm ci --include=dev --omit=optional
+RUN npm ci --omit=optional
 COPY migrations ./migrations
 COPY database.json ./
-ENTRYPOINT ["npx","node-pg-migrate"]
-CMD ["up","-m","migrations","-f","database.json","--config-value","dev"]
+ENTRYPOINT ["node-pg-migrate"]
+CMD ["up","-m","migrations","-f","database.json","--config-value","production"]
 
 FROM node:20-bookworm-slim AS dev
 WORKDIR /app
@@ -29,5 +29,7 @@ ENV NODE_ENV=production
 COPY package*.json ./
 RUN npm ci --omit=dev
 COPY --from=build /app/dist ./dist
+COPY migrations ./migrations
+COPY database.json ./
 EXPOSE 3000
 CMD ["node","dist/index.js"]

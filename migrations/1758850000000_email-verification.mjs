@@ -11,6 +11,9 @@ export const up = (pgm) => {
     },
   });
 
+  // Existing users pre-date email verification — mark them verified so they aren't locked out.
+  pgm.sql('UPDATE auth_users SET is_verified = true');
+
   pgm.createTable('email_verification_tokens', {
     id: { type: 'serial', primaryKey: true },
     user_id: {

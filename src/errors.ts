@@ -33,6 +33,11 @@ export class AuthInvalidError extends AppError {
     super(401, "AUTH_INVALID_CREDENTIALS", "invalid credentials");
   }
 }
+export class ForbiddenError extends AppError {
+  constructor(message = "forbidden", details?: unknown) {
+    super(403, "AUTH_FORBIDDEN", message, details);
+  }
+}
 export class ConflictError extends AppError {
   constructor(message = "resource conflict", details?: unknown) {
     super(409, "RESOURCE_CONFLICT", message, details);
