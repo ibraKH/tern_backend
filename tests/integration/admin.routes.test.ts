@@ -34,6 +34,7 @@ jest.mock('../../src/config/database', () => ({
   __esModule: true,
   default: {
     query: jest.fn(),
+    connect: jest.fn(),
   },
 }));
 
@@ -80,6 +81,7 @@ import { verifyToken } from '../../src/utils/jwt';
 
 const mockVerifyToken = verifyToken as jest.Mock;
 const mockQuery = (pool as any).query as jest.Mock;
+const mockConnect = (pool as any).connect as jest.Mock;
 
 // ─────────────────────────────────────────────
 
@@ -125,6 +127,11 @@ function mockEditorAuth() {
 describe('Admin Routes Integration Tests', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+
+    mockConnect.mockResolvedValue({
+      query: mockQuery,
+      release: jest.fn(),
+    });
   });
 
   // ───── ACCESS CONTROL ─────
@@ -189,6 +196,7 @@ describe('Admin Routes Integration Tests', () => {
   describe('POST /admin/drivers/upload', () => {
     it('uploads valid CSV drivers (upsert)', async () => {
       mockAdminAuth();
+      mockQuery.mockResolvedValueOnce({ rows: [{ id: 1 }] });
 
       const csv = `name,description,category
 Driver1,desc1,cat1`;
@@ -206,7 +214,9 @@ Driver1,desc1,cat1`;
 
     it('uploads valid JSON nested structure', async () => {
       mockAdminAuth();
-      mockQuery.mockResolvedValueOnce({ rows: [{ id: 1 }] }); // drivers INSERT returning id
+      mockQuery
+        .mockResolvedValueOnce({ rows: [{ id: 1 }] })
+        .mockResolvedValueOnce({ rows: [{ id: 2 }] });
 
       const json = [{
         name: 'Driver1',
@@ -240,7 +250,7 @@ Driver1,desc1,cat1`;
         });
 
       expect(res.status).toBe(400);
-      expect(res.body.message).toMatch(/row 1/i);
+      expect(res.body.error?.message).toMatch(/row 2/i);
     });
 
     it('rejects file > 5MB (413)', async () => {
@@ -271,7 +281,7 @@ Driver1,desc1,cat1`;
         });
 
       expect(res.status).toBe(400);
-      expect(res.body.message).toMatch(/invalid file type/i);
+      expect(res.body.error?.message).toMatch(/invalid file type/i);
     });
 
     it('returns 400 when no file is attached', async () => {
@@ -282,7 +292,7 @@ Driver1,desc1,cat1`;
         .set('Authorization', ADMIN_TOKEN);
 
       expect(res.status).toBe(400);
-      expect(res.body.message).toMatch(/no file/i);
+      expect(res.body.error?.message).toMatch(/no file/i);
     });
 
     it('returns 403 for non-admin users', async () => {
@@ -307,7 +317,34 @@ Driver1,desc1,cat1`;
     it('imports model and marks as template', async () => {
       mockAdminAuth();
 
-      const json = { name: 'Template1' };
+      const json = {
+        stm_name: 'Template1',
+        version: '1.0',
+        release_date: '2025-01-01',
+        authorised_by: 'Test',
+        contributing_experts: [],
+        region: 'Test Region',
+        region_id: 0,
+        climate: 'Test Climate',
+        ecosystem_type: 'Test Ecosystem',
+        aus_eco_archetype_code: 1,
+        aus_eco_archetype_name: 'Test Archetype',
+        aus_eco_umbrella_code: 1,
+        peer_reviewed: 'No',
+        no_peer_reviewers: 0,
+        states: [],
+        transitions: [],
+      };
+
+      mockQuery.mockImplementation(async (text: unknown) => {
+        if (typeof text !== 'string') return { rows: [] };
+        if (/^SELECT id FROM stmmodel WHERE stm_name/i.test(text)) return { rows: [] };
+        if (/^UPDATE stmmodel SET is_template/i.test(text)) return { rows: [] };
+        if (text === 'BEGIN' || text === 'COMMIT' || text === 'ROLLBACK') return { rows: [] };
+        if (/SELECT stm_name, is_locked/i.test(text)) return { rows: [] };
+        if (/INSERT INTO stmmodel/i.test(text)) return { rows: [{ id: 123 }] };
+        return { rows: [] };
+      });
 
       const res = await request(app)
         .post('/admin/templates/upload')
@@ -334,7 +371,7 @@ Driver1,desc1,cat1`;
         });
 
       expect(res.status).toBe(400);
-      expect(res.body.message).toMatch(/invalid json/i);
+      expect(res.body.error?.message).toMatch(/invalid json/i);
     });
 
     it('rejects JSON that fails STM schema validation (400)', async () => {
@@ -351,6 +388,7 @@ Driver1,desc1,cat1`;
         });
 
       expect(res.status).toBe(400);
+      expect(res.body.error?.code).toBe('VALIDATION_ERROR');
     });
 
     it('rejects text/csv MIME type (400)', async () => {
@@ -365,7 +403,7 @@ Driver1,desc1,cat1`;
         });
 
       expect(res.status).toBe(400);
-      expect(res.body.message).toMatch(/invalid file type/i);
+      expect(res.body.error?.message).toMatch(/invalid file type/i);
     });
 
     it('returns 400 when no file is attached', async () => {
@@ -376,7 +414,7 @@ Driver1,desc1,cat1`;
         .set('Authorization', ADMIN_TOKEN);
 
       expect(res.status).toBe(400);
-      expect(res.body.message).toMatch(/no file/i);
+      expect(res.body.error?.message).toMatch(/no file/i);
     });
 
     it('returns 403 for non-admin users', async () => {

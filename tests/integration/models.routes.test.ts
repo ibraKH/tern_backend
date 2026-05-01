@@ -197,6 +197,12 @@ describe('review lock routes and save enforcement', () => {
         const user = Object.values(users).find((entry) => entry.uid === params?.[0]);
         return { rows: user ? [{ id: user.uid, email: user.email, role: user.role, contributor_id: user.contributor_id }] : [] };
       }
+      if (text.includes('SELECT role FROM model_permissions') && text.includes('WHERE stm_name = $1')) {
+        // grant editor a viewer role on this model
+        const userEmail = String(params?.[1] ?? '').toLowerCase();
+        if (userEmail === 'editor@editor.com') return { rows: [{ role: 'editor' }] };
+        return { rows: [] };
+      }
       if (text.includes('SELECT stm_name, is_locked, locked_by, locked_at, lock_reason') && text.includes('WHERE stm_name = $1')) {
         return { rows: [{ stm_name: MODEL_NAME, ...lockState }] };
       }

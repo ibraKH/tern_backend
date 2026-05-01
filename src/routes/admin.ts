@@ -1,4 +1,4 @@
-import type { Request, Response } from "express";
+import type { NextFunction, Request, Response } from "express";
 import express from "express";
 import multer from "multer";
 import { RateLimiterMemory } from "rate-limiter-flexible";
@@ -118,7 +118,7 @@ adminRouter.get("/users", async (req: Request, res: Response) => {
 // --- PATCH /api/admin/users/:id/role ---
 adminRouter.patch("/users/:id/role", async (req: Request, res: Response) => {
   const actor = (req as AuthenticatedRequest).user!;
-  const targetId = parseInt(req.params.id);
+  const targetId = parseInt(String(req.params.id), 10);
   if (isNaN(targetId)) return res.status(400).json({ error: "Invalid user id" });
 
   const { role } = req.body;
@@ -157,7 +157,7 @@ adminRouter.patch("/users/:id/role", async (req: Request, res: Response) => {
 // --- DELETE /api/admin/users/:id/sessions ---
 adminRouter.delete("/users/:id/sessions", async (req: Request, res: Response) => {
   const actor = (req as AuthenticatedRequest).user!;
-  const targetId = parseInt(req.params.id);
+  const targetId = parseInt(String(req.params.id), 10);
   if (isNaN(targetId)) return res.status(400).json({ error: "Invalid user id" });
 
   try {
@@ -183,7 +183,7 @@ adminRouter.delete("/users/:id/sessions", async (req: Request, res: Response) =>
 // --- DELETE /api/admin/users/:id ---
 adminRouter.delete("/users/:id", async (req: Request, res: Response) => {
   const actor = (req as AuthenticatedRequest).user!;
-  const targetId = parseInt(req.params.id);
+  const targetId = parseInt(String(req.params.id), 10);
   if (isNaN(targetId)) return res.status(400).json({ error: "Invalid user id" });
 
   if (targetId === actor.id) {
@@ -236,31 +236,33 @@ adminRouter.get("/audit-log", async (_req: Request, res: Response) => {
 });
 
 // --- POST /admin/drivers/upload ---
-adminRouter.post("/drivers/upload", requireRole(["Admin"]), upload.single("file"), async (req, res) => {
-  try {
-    if (!req.file) {
-      throw { status: 400, message: "No file uploaded" };
+adminRouter.post(
+  "/drivers/upload",
+  requireRole(["Admin"]),
+  upload.single("file"),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const result = await handleDriverUpload(req.file);
+      res.status(200).json(result);
+    } catch (error: unknown) {
+      return next(error as Error);
     }
-    const result = await handleDriverUpload(req.file);
-    res.status(200).json(result);
-  } catch (error) {
-    const err = error as { status?: number; message: string };
-    res.status(err.status || 400).json({ message: err.message });
   }
-});
+);
 
 // --- POST /admin/templates/upload ---
-adminRouter.post("/templates/upload", requireRole(["Admin"]), upload.single("file"), async (req, res) => {
-  try {
-    if (!req.file) {
-      throw { status: 400, message: "No file uploaded" };
+adminRouter.post(
+  "/templates/upload",
+  requireRole(["Admin"]),
+  upload.single("file"),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const result = await handleTemplateUpload(req.file);
+      res.status(200).json(result);
+    } catch (error: unknown) {
+      return next(error as Error);
     }
-    const result = await handleTemplateUpload(req.file);
-    res.status(200).json(result);
-  } catch (error) {
-    const err = error as { status?: number; message: string };
-    res.status(err.status || 400).json({ message: err.message });
   }
-});
+);
 
 export default adminRouter;

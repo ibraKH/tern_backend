@@ -95,32 +95,135 @@ export function validate(schemas: Schemas) {
   };
 }
 
-export const driverSchema = z.object({
-  name: z.string(),
-  description: z.string(),
-  category: z.string(),
+// ─────────────────────────────────────────────
+// Admin upload schemas
+// ─────────────────────────────────────────────
+
+const driverUploadItemSchema = z.object({
+  name: z.string().min(1, 'name is required'),
+  description: z.string().optional().nullable(),
+  category: z.string().optional().nullable(),
+  sub_drivers: z
+    .array(
+      z.object({
+        name: z.string().min(1, 'sub_drivers.name is required'),
+        description: z.string().optional().nullable(),
+      })
+    )
+    .optional(),
 });
 
-export const subDriverSchema = z.object({
-  name: z.string(),
-  description: z.string(),
-});
+const driverUploadJsonSchema = z.array(driverUploadItemSchema);
 
-export const driverJSONSchema = z.array(
-  driverSchema.extend({
-    sub_drivers: z.array(subDriverSchema),
-  })
-);
-
-export const stmModelSchema = z.object({
-  name: z.string(),
-  // Add other STM model fields here as needed
-});
-
+/**
+ * Backwards-compatible export name used by the admin driver upload service.
+ */
 export function validateDriverJSON(data: unknown) {
-  driverJSONSchema.parse(data);
+  return driverUploadJsonSchema.parse(data);
 }
 
+// Template upload should match (at least) the top-level structure required by saveModel().
+// The JSON is described as "same shape as GET /models/:name" which maps to BMRGData.
+const contributorSchema = z.object({
+  contributor_id: z.number().int().positive().optional(),
+  name: z.string().min(1),
+  email: z.string().email(),
+  contribution_type: z.enum(['Author', 'Reviewer']),
+}).passthrough();
+
+const stateAttributeSchema = z.object({
+  state_attribute_id: z.number().int().positive().optional(),
+  attribute_type: z.string().min(1),
+  value: z.union([z.number(), z.string()]),
+  units: z.string().optional().nullable(),
+}).passthrough();
+
+const vastStateSchema = z.object({
+  vast_state_id: z.number().int().positive().optional(),
+  vast_class: z.string().optional().nullable(),
+  vast_name: z.string().optional().nullable(),
+  eks_overstorey_class: z.string().optional().nullable(),
+  eks_understorey_class: z.string().optional().nullable(),
+  eks_substate: z.string().optional().nullable(),
+  link: z.string().optional().nullable(),
+}).passthrough();
+
+const stateSchema = z.object({
+  state_id: z.number().int().positive().optional(),
+  frontend_state_id: z.number().int().positive().optional(),
+  state_name: z.string().min(1),
+  vast_state: vastStateSchema.optional().nullable(),
+  condition_upper: z.number().optional().nullable(),
+  condition_lower: z.number().optional().nullable(),
+  eks_condition_estimate: z.number().optional().nullable(),
+  elicitation_type: z.enum(['Pilot region', 'NEAP estimate']).optional().nullable(),
+  node_x: z.number().optional().nullable(),
+  node_y: z.number().optional().nullable(),
+  attributes: z.array(stateAttributeSchema).optional().default([]),
+}).passthrough();
+
+const chainDriverSchema = z.object({
+  driver_id: z.number().int().positive().optional(),
+  driver: z.string().min(1),
+  description: z.string().optional().nullable(),
+  driver_group: z.string().optional().nullable(),
+}).passthrough();
+
+const causalChainSchema = z.object({
+  causal_chain_id: z.number().int().positive().optional(),
+  name: z.string().optional().nullable(),
+  chain_part: z.string().optional().nullable(),
+  drivers: z.array(chainDriverSchema).optional().default([]),
+}).passthrough();
+
+const transitionSchema = z.object({
+  id: z.number().int().positive().optional(),
+  transition_id: z.number().int().positive().optional().nullable(),
+  stm_name: z.string().optional().nullable(),
+  start_state_id: z.number().int(),
+  end_state_id: z.number().int(),
+  time_25: z.number().optional().nullable(),
+  time_100: z.number().optional().nullable(),
+  likelihood_25: z.number().optional().nullable(),
+  likelihood_100: z.number().optional().nullable(),
+  notes: z.string().optional().nullable(),
+  causal_chain: z.array(causalChainSchema).optional().default([]),
+  transition_delta: z.number().optional().nullable(),
+}).passthrough();
+
+const stmModelUploadSchema = z
+  .object({
+    // GET /models/:name uses stm_name, but the PR description mentions name.
+    stm_name: z.string().min(1).optional(),
+    name: z.string().min(1).optional(),
+
+    // Core metadata required by saveModel() / upsertModelMetadata()
+    version: z.string().min(1),
+    release_date: z.string().min(1),
+    authorised_by: z.string().min(1),
+    contributing_experts: z.array(contributorSchema),
+    region: z.string().min(1),
+    region_id: z.number().int(),
+    climate: z.string().min(1),
+    ecosystem_type: z.string().min(1),
+    aus_eco_archetype_code: z.union([z.number().int(), z.string().transform((v) => Number(v))]),
+    aus_eco_archetype_name: z.string().min(1),
+    aus_eco_umbrella_code: z.union([z.number().int(), z.string().transform((v) => Number(v))]),
+    peer_reviewed: z.string().min(1),
+    no_peer_reviewers: z.number().int(),
+
+    states: z.array(stateSchema),
+    transitions: z.array(transitionSchema),
+  })
+  .passthrough()
+  .refine((v) => typeof v.stm_name === 'string' || typeof v.name === 'string', {
+    message: 'Model name is required (stm_name or name)',
+    path: ['stm_name'],
+  });
+
+/**
+ * Backwards-compatible export name used by the admin template upload service.
+ */
 export function validateSTMModel(data: unknown) {
-  stmModelSchema.parse(data);
+  return stmModelUploadSchema.parse(data);
 }

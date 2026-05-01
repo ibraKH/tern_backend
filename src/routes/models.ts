@@ -502,7 +502,7 @@ models.delete('/:name/review-lock', limitModelsWrite, requireRole(["Admin"]), as
  */
 models.get('/:name', limitModelsRead, requireRole(["Admin", "Editor", "Viewer"]), requireModelRole(['viewer', 'editor', 'reviewer']), validate({ params: getModelByNameSchema }), async (req: Request, res: Response) => {
   try {
-    const { name } = req.params;
+    const { name } = req.params as { name: string };
     const model = await getModelByName(name);
     if (!model) {
       return res.status(404).json({ message: `Model with name '${name}' not found` });
