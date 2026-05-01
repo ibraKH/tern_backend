@@ -276,8 +276,14 @@ auth.post("/login", limitLogin, validate({ body: loginSchema }), async (req: Req
     const user = await authenticate(body);
     if (!user) throw new AuthInvalidError();
     const token = signToken({ uid: user.id, email: user.email, role: user.role });
-    const pendingMentions = await getPendingMentions(user.id);
-    res.json({ token, user: { id: user.id, email: user.email, role: user.role }, pendingMentionCount: pendingMentions.length });
+    let pendingMentionCount = 0;
+    try {
+      const pendingMentions = await getPendingMentions(user.id);
+      pendingMentionCount = pendingMentions.length;
+    } catch (err: unknown) {
+      console.warn("[/auth/login] failed to fetch pending mentions:", (err as Error).message || err);
+    }
+    res.json({ token, user: { id: user.id, email: user.email, role: user.role }, pendingMentionCount });
   } catch (e: unknown) {
     if (e instanceof AppError) return next(e);
     res.status(500).json({ error: "login failed" });

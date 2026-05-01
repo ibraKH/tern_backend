@@ -13,6 +13,7 @@ import driversRoutes from './routes/drivers';
 import notificationsRoutes from './routes/notifications';
 import permissionsRoutes from './routes/permissions';
 import adminRoutes from './routes/admin';
+import apiAdminRoutes from './routes/api.admin';
 import { requireAuth } from "./middlewares/auth.middleware";
 import { requireAdmin } from "./middlewares/requireAdmin";
 import { errorHandler } from "./middlewares/error.middleware";
@@ -77,7 +78,8 @@ app.use('/models', requireAuth, modelsRoutes, permissionsRoutes, locksRoutes);
 app.use('/drivers', requireAuth, driversRoutes);
 app.use('/collab', collabRoutes);
 app.use('/notifications', notificationsRoutes);
-app.use('/api/admin', requireAuth, requireAdmin, adminRoutes);
+app.use('/admin', requireAuth, adminRoutes);
+app.use('/api/admin', requireAuth, requireAdmin, apiAdminRoutes);
 app.get("/openapi.json", (_req, res) => res.json(swaggerSpec));
 
 // Error handling middleware
