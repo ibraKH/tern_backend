@@ -8,7 +8,7 @@ export type ContributionType = 'Author' | 'Reviewer';
 
 export interface VastState {
   vast_state_id?: number;              
-  vast_class?: 'ClassI'|'ClassII'|'ClassIII'|'ClassIV'|'ClassV'|'ClassVI';
+  vast_class?: string;
   vast_name?: string;
   vast_eks_state?: number | null;
   eks_overstorey_class?: string | null;
@@ -33,6 +33,8 @@ export interface StateData {
     condition_lower: number | null;
     eks_condition_estimate: number | null;
     elicitation_type?: 'Pilot region' | 'NEAP estimate';
+    node_x?: number | null;
+    node_y?: number | null;
     attributes: StateAttribute[];
 }
 
@@ -64,7 +66,7 @@ export interface TransitionData {
     likelihood_100?: number | null;
     notes?: string | null;
     causal_chain: CausalChain[];
-    transition_delta: number | null;
+    transition_delta?: number | null;
 }
 
 export interface Contributor {
@@ -93,4 +95,9 @@ export interface BMRGData {
     states: StateData[];
     transitions: TransitionData[];
     method_alignment?: string | null;
+    is_template?: boolean;
+    is_locked?: boolean;
+    locked_by?: string | null;
+    locked_at?: string | null;
+    lock_reason?: string | null;
 }

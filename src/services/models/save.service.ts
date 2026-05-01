@@ -1,6 +1,8 @@
 import pool from '../../config/database';
 import type { BMRGData, Contributor, StateData, TransitionData } from '../../types/models.types';
 import type { PoolClient } from 'pg';
+import { calcTransitionDelta } from '../../utils/transition.utils';
+import { assertModelUnlocked, assertModelUnlockedById } from './reviewLock.service';
 
 // ---------- Utility functions ----------
 export function normalizeReleaseDate(release_date?: string): string | null {
@@ -318,6 +320,21 @@ export async function upsertStates(client: Pick<PoolClient, 'query'>, stm_name: 
     if (stateId) {
       // --- UPDATE existing state ---
       const existingStateId = state.state_id!; // safe due to if (stateId) guard
+
+      let nodeX: number | null | undefined;
+      if (!Object.prototype.hasOwnProperty.call(state, 'node_x')) {
+        nodeX = undefined; // not clearing the field
+      } else {
+        nodeX = state.node_x ?? null;
+      }
+
+      let nodeY: number | null | undefined;
+      if (!Object.prototype.hasOwnProperty.call(state, 'node_y')) {
+        nodeY = undefined; // not clearing the field
+      } else {
+        nodeY = state.node_y ?? null;
+      }
+
       await buildDynamicUpdate(
         client,
         "states",
@@ -331,6 +348,8 @@ export async function upsertStates(client: Pick<PoolClient, 'query'>, stm_name: 
           condition_lower: state.condition_lower,
           condition_upper: state.condition_upper,
           ellictation_type: elicitType,
+          node_x: nodeX,
+          node_y: nodeY,
         }
       );
 
@@ -340,9 +359,10 @@ export async function upsertStates(client: Pick<PoolClient, 'query'>, stm_name: 
       const stateResult = await client.query(
         `INSERT INTO states (
           stm_name, state_name, vast_state_id, eks_condition_estimate,
-          condition_lower, condition_upper, ellictation_type
+          condition_lower, condition_upper, ellictation_type,
+          node_x, node_y
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
         RETURNING id`,
         [
           // state.id is serial in database, so don't insert it
@@ -352,7 +372,9 @@ export async function upsertStates(client: Pick<PoolClient, 'query'>, stm_name: 
           state.eks_condition_estimate,
           state.condition_lower,
           state.condition_upper,
-          elicitType
+          elicitType,
+          state.node_x ?? null,
+          state.node_y ?? null,
         ]
       );
       stateId = stateResult.rows[0]?.id;
@@ -421,7 +443,53 @@ export async function upsertTransitions(client: Pick<PoolClient, 'query'>, stm_n
     const startStateId = stateMap[transition.start_state_id] ? stateMap[transition.start_state_id] : transition.start_state_id;
     const endStateId = stateMap[transition.end_state_id] ? stateMap[transition.end_state_id] : transition.end_state_id;
 
+    const hasOwn = (key: string) => Object.prototype.hasOwnProperty.call(transition, key);
+    const anyDeltaInputProvided =
+      hasOwn('likelihood_25') ||
+      hasOwn('likelihood_100') ||
+      hasOwn('time_25') ||
+      hasOwn('time_100');
+
+    const time100 = transition.time_100 ?? null;
+    const time25 = transition.time_25 ?? null;
+    const likelihood25 = transition.likelihood_25 ?? null;
+    const likelihood100 = transition.likelihood_100 ?? null;
+
+    const computedDelta = calcTransitionDelta(likelihood25, likelihood100, time25, time100);
+
     if (transitionId) {
+      let computedDeltaForUpdate: number | null = null;
+      if (anyDeltaInputProvided) {
+        const existingRes = await client.query<{
+          time_25: number | null;
+          time_100: number | null;
+          likelihood_25: number | null;
+          likelihood_100: number | null;
+        }>(
+          `SELECT time_25, time_100, likelihood_25, likelihood_100
+           FROM transitions
+           WHERE id = $1`,
+          [transitionId]
+        );
+        if (existingRes.rows.length === 0) {
+          throw { status: 404, message: `transitions with id=${transitionId} not found` };
+        }
+
+        const existing = existingRes.rows[0];
+
+        const mergedTime25 = hasOwn('time_25') ? (transition.time_25 ?? null) : (existing.time_25 ?? null);
+        const mergedTime100 = hasOwn('time_100') ? (transition.time_100 ?? null) : (existing.time_100 ?? null);
+        const mergedLikelihood25 = hasOwn('likelihood_25') ? (transition.likelihood_25 ?? null) : (existing.likelihood_25 ?? null);
+        const mergedLikelihood100 = hasOwn('likelihood_100') ? (transition.likelihood_100 ?? null) : (existing.likelihood_100 ?? null);
+
+        computedDeltaForUpdate = calcTransitionDelta(
+          mergedLikelihood25,
+          mergedLikelihood100,
+          mergedTime25,
+          mergedTime100
+        );
+      }
+
       // --- UPDATE existing transition with dynamic fields ---
       await buildDynamicUpdate(
         client,
@@ -437,33 +505,66 @@ export async function upsertTransitions(client: Pick<PoolClient, 'query'>, stm_n
           time_25: transition.time_25,
           likelihood_25: transition.likelihood_25,
           likelihood_100: transition.likelihood_100,
-          transition_delta: transition.transition_delta
+          // Recompute server-side whenever any input changes, using payload merged with existing DB values.
+          transition_delta: anyDeltaInputProvided ? computedDeltaForUpdate : undefined
         }
       );
 
     } else {
-      // --- INSERT new transition ---
+      // --- INSERT or UPSERT transition ---
+      // When transition_id is provided, use ON CONFLICT to update if a row
+      // with the same (stm_name, transition_id) already exists (e.g. re-saving
+      // a model whose transitions were previously persisted).
+      const hasBusinessId = transition.transition_id != null;
 
-      const transitionResult = await client.query(
-        `INSERT INTO transitions (
-          stm_name, start_state_id, end_state_id, transition_id,
-          time_100, time_25, likelihood_25, likelihood_100, transition_delta
-        )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-        RETURNING id`,
-        [
-          // transition.id is serial in database, so don't insert it
-          stm_name,
-          startStateId,  // start_state_id and end_state_id must exist in states table
-          endStateId,
-          transition.transition_id,   // is not the id of the transition, Links to the Australianeco_arche type and MVG cross walk.
-          transition.time_100,
-          transition.time_25,
-          transition.likelihood_25,
-          transition.likelihood_100,
-          transition.transition_delta
-        ]
-      );
+      const transitionResult = hasBusinessId
+        ? await client.query(
+            `INSERT INTO transitions (
+              stm_name, start_state_id, end_state_id, transition_id,
+              time_100, time_25, likelihood_25, likelihood_100, transition_delta
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            ON CONFLICT (stm_name, transition_id) DO UPDATE SET
+              start_state_id   = EXCLUDED.start_state_id,
+              end_state_id     = EXCLUDED.end_state_id,
+              time_100         = EXCLUDED.time_100,
+              time_25          = EXCLUDED.time_25,
+              likelihood_25    = EXCLUDED.likelihood_25,
+              likelihood_100   = EXCLUDED.likelihood_100,
+              transition_delta = EXCLUDED.transition_delta
+            RETURNING id`,
+            [
+              stm_name,
+              startStateId,
+              endStateId,
+              transition.transition_id,
+              time100,
+              time25,
+              likelihood25,
+              likelihood100,
+              computedDelta
+            ]
+          )
+        : await client.query(
+            `INSERT INTO transitions (
+              stm_name, start_state_id, end_state_id, transition_id,
+              time_100, time_25, likelihood_25, likelihood_100, transition_delta
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            RETURNING id`,
+            [
+              stm_name,
+              startStateId,
+              endStateId,
+              transition.transition_id,
+              time100,
+              time25,
+              likelihood25,
+              likelihood100,
+              computedDelta
+            ]
+          );
+
       transitionId = transitionResult.rows[0].id;
       if (typeof transitionId === 'number') transitionIds.push(transitionId);
     }
@@ -599,17 +700,26 @@ export async function saveModel(modelData: BMRGData) {
   try {
     await client.query('BEGIN');
 
+    let stmName = typeof modelData.stm_name === 'string' ? modelData.stm_name.trim() : '';
+    if (modelData.id) {
+      const existingName = await assertModelUnlockedById(modelData.id, client);
+      if (!stmName && existingName) {
+        stmName = existingName;
+      }
+    } else if (stmName) {
+      await assertModelUnlocked(stmName, client);
+    }
+
     // 1. Upsert main model
     const modelId = await upsertModelMetadata(client, modelData);
     // If stm_name not provided in modelData, fetch it from the database using modelId
-    let stm_name = modelData.stm_name;
-    if (!stm_name || stm_name.trim() === "") {
+    if (!stmName) {
       const res = await client.query(
         `SELECT stm_name FROM stmmodel WHERE id = $1`,
         [modelId]
       );
       if (res.rows.length > 0) {
-        stm_name = res.rows[0].stm_name;
+        stmName = res.rows[0].stm_name;
       } else {
         throw new Error(`stm_name not found for model id ${modelId}`);
       }
@@ -621,11 +731,11 @@ export async function saveModel(modelData: BMRGData) {
     // 3. Upsert states & vast_states & state_attributes
     let stateMap: Record<number, number> = {};
     if (modelData.states != undefined && modelData.states != null) {
-      stateMap = await upsertStates(client, stm_name, modelData.states);
+      stateMap = await upsertStates(client, stmName, modelData.states);
     }
     // 4. Upsert transitions & causal_chain & drivers
     if (modelData.transitions != undefined && modelData.transitions != null) {
-      await upsertTransitions(client, stm_name, modelData.transitions, stateMap);
+      await upsertTransitions(client, stmName, modelData.transitions, stateMap);
     }
 
     // // 5. Save method_alignment（it's "None" and it don't insert for now)
@@ -638,6 +748,274 @@ export async function saveModel(modelData: BMRGData) {
 
     await client.query('COMMIT');
     return { modelId };
+
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw {
+      status: error && typeof error === 'object' && 'status' in error ? (error as { status: number }).status : 500,
+      message: error && typeof error === 'object' && 'message' in error ? (error as { message: string }).message : (error as Error).message || String(error),
+    };
+  } finally {
+    client.release();
+  }
+}
+
+// Flag/unflag a model as a template (Admin or model owner only)
+export async function flagAsTemplate(stmName: string, flag: boolean, userRole: string, userEmail: string): Promise<void> {
+  const client = await pool.connect();
+  try {
+    if (userRole !== 'Admin') {
+      const ownerRes = await client.query(
+        `SELECT c.id, LOWER(c.email) AS email
+         FROM contributors c
+         JOIN model_contributions mc ON c.id = mc.contributor_id
+         JOIN stmmodel sm ON sm.id = mc.stm_id
+         WHERE sm.stm_name = $1`,
+        [stmName]
+      );
+      const isOwner = ownerRes.rows.some((row: { email: string }) => row.email === userEmail.toLowerCase());
+      if (!isOwner) {
+        throw { status: 403, message: 'Admin or owner required to update template flag' };
+      }
+    }
+
+    const result = await client.query(
+      `UPDATE stmmodel SET is_template = $1 WHERE stm_name = $2 RETURNING id`,
+      [flag, stmName]
+    );
+
+    if (result.rows.length === 0) {
+      throw { status: 404, message: `Model with name '${stmName}' not found` };
+    }
+  } finally {
+    client.release();
+  }
+}
+
+// Clone a template into a new model owned by the requesting user
+export async function cloneFromTemplate(templateName: string, newModelName: string, contributorId: number | null, userEmail?: string): Promise<{ modelId: number; stm_name: string }> {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // 1. Fetch the template model (must be flagged as a template)
+    const templateRes = await client.query(
+      `SELECT id, stm_name, version, release_date, authorised_by, region, region_id,
+              ecosystem_type, aus_eco_archetype_code, aus_eco_archetype_name,
+              aus_eco_umbrella_code, peer_reviewed, no_peer_reviewers, climate
+       FROM stmmodel WHERE stm_name = $1 AND is_template = TRUE`,
+      [templateName]
+    );
+
+    if (templateRes.rows.length === 0) {
+      throw { status: 404, message: `Template with name '${templateName}' not found` };
+    }
+
+    const template = templateRes.rows[0];
+
+    // 1.1 Validate region_id if present (always check for test consistency)
+    const regionCheck = await client.query(
+      'SELECT id FROM regions WHERE id = $1',
+      [template.region_id]
+    );
+    if (template.region_id && regionCheck.rows.length === 0) {
+      throw { status: 400, message: `Invalid region_id ${template.region_id}` };
+    }
+
+    // 2. Create a new model with the same metadata but new name and is_template = false
+    const newModelRes = await client.query(
+      `INSERT INTO stmmodel (
+         stm_name, version, release_date, authorised_by, region, region_id,
+         ecosystem_type, aus_eco_archetype_code, aus_eco_archetype_name,
+         aus_eco_umbrella_code, peer_reviewed, no_peer_reviewers, climate, is_template
+       )
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, FALSE)
+       RETURNING id`,
+      [
+        newModelName, template.version, template.release_date, template.authorised_by,
+        template.region, template.region_id, template.ecosystem_type,
+        template.aus_eco_archetype_code, template.aus_eco_archetype_name,
+        template.aus_eco_umbrella_code, template.peer_reviewed, template.no_peer_reviewers,
+        template.climate
+      ]
+    );
+
+    const newModelId = newModelRes.rows[0].id;
+
+    // 2.1 Link the cloning user as the owner of the new model.
+    // If no contributor_id, look up or create a contributors row using the user's email.
+    let resolvedContributorId = contributorId;
+    if (resolvedContributorId === null && userEmail) {
+      const email = userEmail.trim().toLowerCase();
+      const { rows: found } = await client.query(
+        `SELECT id FROM contributors WHERE LOWER(email) = $1 LIMIT 1`,
+        [email]
+      );
+      if (found.length) {
+        resolvedContributorId = found[0].id;
+      } else {
+        const { rows: inserted } = await client.query(
+          `INSERT INTO contributors (name, email) VALUES (NULL, $1) RETURNING id`,
+          [email]
+        );
+        resolvedContributorId = inserted[0].id;
+      }
+    }
+
+    if (resolvedContributorId !== null) {
+      await client.query(
+        `INSERT INTO model_contributions (stm_id, contributor_id, contribution_type) VALUES ($1, $2, 'Author')`,
+        [newModelId, resolvedContributorId]
+      );
+    }
+
+    // 3. Copy all states using a single bulk unnest insert
+    const statesRes = await client.query(
+      `SELECT id, state_name, vast_state_id, eks_condition_estimate, condition_lower,
+              condition_upper, ellictation_type, node_x, node_y
+       FROM states WHERE stm_name = $1`,
+      [templateName]
+    );
+
+    const stateMap: Record<number, number> = {}; // old state_id -> new state_id
+
+    if (statesRes.rows.length > 0) {
+      const bulkStateRes = await client.query(
+        `INSERT INTO states (
+           stm_name, state_name, vast_state_id, eks_condition_estimate,
+           condition_lower, condition_upper, ellictation_type, node_x, node_y
+         )
+         SELECT $1,
+                u.state_name,
+                u.vast_state_id,
+                u.eks_condition_estimate,
+                u.condition_lower,
+                u.condition_upper,
+                u.ellictation_type,
+                u.node_x,
+                u.node_y
+         FROM unnest(
+           $2::text[],
+           $3::int[],
+           $4::numeric[],
+           $5::numeric[],
+           $6::numeric[],
+           $7::text[],
+           $8::numeric[],
+           $9::numeric[]
+         ) AS u(state_name, vast_state_id, eks_condition_estimate,
+                condition_lower, condition_upper, ellictation_type, node_x, node_y)
+         RETURNING id`,
+        [
+          newModelName,
+          statesRes.rows.map(s => s.state_name),
+          statesRes.rows.map(s => s.vast_state_id),
+          statesRes.rows.map(s => s.eks_condition_estimate),
+          statesRes.rows.map(s => s.condition_lower),
+          statesRes.rows.map(s => s.condition_upper),
+          statesRes.rows.map(s => s.ellictation_type),
+          statesRes.rows.map(s => s.node_x),
+          statesRes.rows.map(s => s.node_y),
+        ]
+      );
+      for (let i = 0; i < statesRes.rows.length; i++) {
+        stateMap[statesRes.rows[i].id] = bulkStateRes.rows[i].id;
+      }
+    }
+
+    // 4. Copy all transitions using a single bulk unnest insert
+    const transitionsRes = await client.query(
+      `SELECT id, start_state_id, end_state_id, time_25, time_100,
+              likelihood_25, likelihood_100, transition_delta
+       FROM transitions WHERE stm_name = $1`,
+      [templateName]
+    );
+
+    const transitionIdMap: Record<number, number> = {}; // old transition_id -> new transition_id
+
+    if (transitionsRes.rows.length > 0) {
+      for (const trans of transitionsRes.rows) {
+        if (!stateMap[trans.start_state_id] || !stateMap[trans.end_state_id]) {
+          throw { status: 500, message: `State mapping missing for transition id=${trans.id} in template '${templateName}'` };
+        }
+      }
+
+      const bulkTransRes = await client.query(
+        `INSERT INTO transitions (
+           stm_name, start_state_id, end_state_id, time_25, time_100,
+           likelihood_25, likelihood_100, transition_delta
+         )
+         SELECT $1,
+                u.start_state_id,
+                u.end_state_id,
+                u.time_25,
+                u.time_100,
+                u.likelihood_25,
+                u.likelihood_100,
+                u.transition_delta
+         FROM unnest(
+           $2::int[],
+           $3::int[],
+           $4::numeric[],
+           $5::numeric[],
+           $6::numeric[],
+           $7::numeric[],
+           $8::numeric[]
+         ) AS u(start_state_id, end_state_id, time_25, time_100, likelihood_25, likelihood_100, transition_delta)
+         RETURNING id`,
+        [
+          newModelName,
+          transitionsRes.rows.map(t => stateMap[t.start_state_id]),
+          transitionsRes.rows.map(t => stateMap[t.end_state_id]),
+          transitionsRes.rows.map(t => t.time_25),
+          transitionsRes.rows.map(t => t.time_100),
+          transitionsRes.rows.map(t => t.likelihood_25),
+          transitionsRes.rows.map(t => t.likelihood_100),
+          transitionsRes.rows.map(t => t.transition_delta),
+        ]
+      );
+
+      for (let i = 0; i < transitionsRes.rows.length; i++) {
+        transitionIdMap[transitionsRes.rows[i].id] = bulkTransRes.rows[i].id;
+      }
+    }
+
+    // 4.1 Copy causal chains and drivers per transition
+    for (const trans of transitionsRes.rows) {
+      const newTransId = transitionIdMap[trans.id];
+
+      const chainsRes = await client.query(
+        `SELECT id, name, chain_part FROM causal_chain WHERE transition_id = $1`,
+        [trans.id]
+      );
+
+      for (const chain of chainsRes.rows) {
+        const newChainRes = await client.query(
+          `INSERT INTO causal_chain (transition_id, name, chain_part)
+           VALUES ($1, $2, $3)
+           RETURNING id`,
+          [newTransId, chain.name, chain.chain_part]
+        );
+        const newChainId = newChainRes.rows[0].id;
+
+        const driversRes = await client.query(
+          `SELECT driver_id FROM chain_driver WHERE causal_chain_id = $1`,
+          [chain.id]
+        );
+
+        for (const driver of driversRes.rows) {
+          await client.query(
+            `INSERT INTO chain_driver (causal_chain_id, driver_id)
+             VALUES ($1, $2)
+             ON CONFLICT DO NOTHING`,
+            [newChainId, driver.driver_id]
+          );
+        }
+      }
+    }
+
+    await client.query('COMMIT');
+    return { modelId: newModelId, stm_name: newModelName };
 
   } catch (error) {
     await client.query('ROLLBACK');

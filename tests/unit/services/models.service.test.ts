@@ -18,7 +18,6 @@ const makeChain = (c: Partial<CausalChain>): CausalChain => ({ name: 'Chain', ch
 const makeTransition = (t: Partial<TransitionData>): TransitionData => ({
   start_state_id: 1,
   end_state_id: 2,
-  transition_delta: 0,
   causal_chain: [],
   ...t,
 });
@@ -362,6 +361,7 @@ describe('upsertTransitions', () => {
         time_25: 25,
         likelihood_25: 0.3,
         likelihood_100: 0.8,
+        // transition_delta is ignored by backend (computed server-side)
         transition_delta: 5,
         causal_chain: [
           makeChain({
@@ -388,10 +388,11 @@ mockClient.query
     const result = await upsertTransitions(mockClient, 'STM1', transitions, stateMap);
 
     // transition insert
-    expect(mockClient.query).toHaveBeenCalledWith(
-      expect.stringContaining('INSERT INTO transitions'),
-      expect.arrayContaining([ 'STM1', 1, 2, 1001, 50, 25, 0.3, 0.8, 5 ])
-    );
+    const [, insertParams] = (mockClient.query as jest.Mock).mock.calls.find(
+      ([sql]: [string, unknown[]]) => (sql as string).includes('INSERT INTO transitions')
+    )!;
+    // (0.8 - 0.3) / (50 - 25) = 0.02
+    expect(insertParams[8] as number).toBeCloseTo(0.02);
 
     // driver inserts
     expect(mockClient.query).toHaveBeenCalledWith(
@@ -451,6 +452,10 @@ mockClient.query
     )!;
     expect(params[1]).toBe(11); // start_state_id
     expect(params[2]).toBe(22); // end_state_id
+
+    // transition_delta is computed server-side
+    // (0.6 - 0.2) / (10 - 5) = 0.08
+    expect(params[8] as number).toBeCloseTo(0.08);
   });
 
   it('should do nothing if transitions array is empty', async () => {
@@ -520,6 +525,11 @@ describe("model.service", () => {
               peer_reviewed: true,
               no_peer_reviewers: 3,
               climate: "Tropical",
+              is_template: false,
+              is_locked: true,
+              locked_by: 'reviewer@example.com',
+              locked_at: '2026-04-29T00:00:00.000Z',
+              lock_reason: 'Peer reviewed',
             },
           ],
         })
@@ -578,11 +588,15 @@ describe("model.service", () => {
       const model = await getModelByName("ModelX");
 
       expect(client.query).toHaveBeenCalled();
+      expect(model?.id).toBe(1);
       expect(model?.stm_name).toBe("ModelX");
       expect(model?.contributing_experts).toHaveLength(1);
       expect(model?.states[0].attributes[0].attribute_type).toBe("Height");
       expect(model?.transitions[0].causal_chain[0].name).toBe("Fire");
       expect(model?.method_alignment).toBe("Method1");
+      expect(model?.is_locked).toBe(true);
+      expect(model?.locked_by).toBe('reviewer@example.com');
+      expect(model?.lock_reason).toBe('Peer reviewed');
     });
 
     it("returns null when model not found", async () => {

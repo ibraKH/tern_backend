@@ -15,6 +15,20 @@ export async function getAllModels() {
   }
 }
 
+// Get all template model names (where is_template = TRUE)
+export async function getTemplates() {
+  const client = await pool.connect();
+  try {
+    const result = await client.query(
+      `SELECT stm_name FROM stmmodel WHERE is_template = TRUE ORDER BY stm_name`
+    );
+    // Only return the names as an array of strings
+    return result.rows.map(r => r.stm_name);
+  } finally {
+    client.release();
+  }
+}
+
 // Get model details by name, including states and transitions
 export async function getModelByName(name: string): Promise<BMRGData | null> {
   const client = await pool.connect();
@@ -25,7 +39,8 @@ export async function getModelByName(name: string): Promise<BMRGData | null> {
               region, region_id, ecosystem_type,
               aus_eco_archetype_code, aus_eco_archetype_name,
               aus_eco_umbrella_code, peer_reviewed,
-              no_peer_reviewers, climate
+              no_peer_reviewers, climate, is_template,
+              is_locked, locked_by, locked_at, lock_reason
        FROM stmmodel
        WHERE stm_name = $1`,
       [name]
@@ -50,18 +65,31 @@ export async function getModelByName(name: string): Promise<BMRGData | null> {
     const statesRes = await client.query(
       `SELECT s.id, s.state_name, s.eks_condition_estimate,
               s.condition_lower, s.condition_upper, s.ellictation_type,
-              v.vast_class, v.vast_name, v.eks_overstorey_class,
-              v.eks_understorey_class, v.eks_substate, v.link
+              s.node_x, s.node_y,
+              s.vast_state_id,
+              v.id AS vast_id, v.vast_class, v.vast_name,
+              v.eks_overstorey_class, v.eks_understorey_class,
+              v.eks_substate, v.link
        FROM states s
        LEFT JOIN vast_states v ON s.vast_state_id = v.id
        WHERE s.stm_name = $1`,
       [name]
     );
 
+    // Map DB enum values (e.g. "ClassI") back to display format ("Class I")
+    const vastClassDisplayMap: Record<string, string> = {
+      ClassI: 'Class I',
+      ClassII: 'Class II',
+      ClassIII: 'Class III',
+      ClassIV: 'Class IV',
+      ClassV: 'Class V',
+      ClassVI: 'Class VI',
+    };
+
     const states: StateData[] = [];
     for (const s of statesRes.rows) {
       const attrsRes = await client.query(
-        `SELECT attribute_type, value, units
+        `SELECT id AS state_attribute_id, attribute_type, value, units
          FROM state_attributes
          WHERE state_id = $1`,
         [s.id]
@@ -71,7 +99,8 @@ export async function getModelByName(name: string): Promise<BMRGData | null> {
         state_id: s.id,
         state_name: s.state_name,
         vast_state: {
-          vast_class: s.vast_class,
+          vast_state_id: s.vast_state_id ?? undefined,
+          vast_class: vastClassDisplayMap[s.vast_class] ?? s.vast_class,
           vast_name: s.vast_name,
           vast_eks_state: s.eks_condition_estimate,
           eks_overstorey_class: s.eks_overstorey_class,
@@ -83,6 +112,8 @@ export async function getModelByName(name: string): Promise<BMRGData | null> {
         condition_lower: s.condition_lower,
         eks_condition_estimate: s.eks_condition_estimate,
         elicitation_type: s.ellictation_type,
+        node_x: s.node_x,
+        node_y: s.node_y,
         attributes: attrsRes.rows,
       });
     }
@@ -136,6 +167,7 @@ export async function getModelByName(name: string): Promise<BMRGData | null> {
     );
 
     const model: BMRGData = {
+      id: row.id,
       stm_name: row.stm_name,
       version: row.version,
       release_date: row.release_date,
@@ -153,6 +185,11 @@ export async function getModelByName(name: string): Promise<BMRGData | null> {
       states,
       transitions,
       method_alignment: methodRes.rows[0]?.method_name || '',
+      is_template: row.is_template,
+      is_locked: row.is_locked,
+      locked_by: row.locked_by,
+      locked_at: row.locked_at ? String(row.locked_at) : null,
+      lock_reason: row.lock_reason,
     };
 
     return model;
