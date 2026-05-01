@@ -352,7 +352,7 @@ models.get('/health', (req: Request, res: Response) => {
  *           application/json:
  *             schema: { $ref: '#/components/schemas/ErrorResponse' }
  *       403:
- *         description: Forbidden (requires Admin role).
+ *         description: Forbidden (requires authenticated user).
  *         content:
  *           application/json:
  *             schema: { $ref: '#/components/schemas/ErrorResponse' }
@@ -362,7 +362,7 @@ models.get('/health', (req: Request, res: Response) => {
  *           application/json:
  *             schema: { $ref: '#/components/schemas/ErrorResponse' }
  */
-models.get('/all', limitModelsRead, requireRole(["Admin"]), validate({ params: getAllModelsSchema }), async (req: Request, res: Response) => {
+models.get('/all', limitModelsRead, requireRole(["Admin", "Editor", "Viewer"]), validate({ params: getAllModelsSchema }), async (req: Request, res: Response) => {
   try {
     const modelNames = await getAllModels();
     res.json(modelNames);
