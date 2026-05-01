@@ -14,7 +14,7 @@ import app from '../../src/app';
 import pool from '../../src/config/database';
 import { verifyToken } from '../../src/utils/jwt';
 
-let mockClient: any;
+let mockClient: { query: jest.Mock; release: jest.Mock };
 
 describe('health and templates of models router', () => {
   beforeEach(() => {
@@ -38,7 +38,7 @@ describe('health and templates of models router', () => {
       ],
     });
 
-    (pool as any).connect = jest.fn().mockResolvedValue(mockClient);
+    (pool as unknown as { connect: jest.Mock }).connect = jest.fn().mockResolvedValue(mockClient);
   });
 
   it('GET /models/health returns ok', async () => {
@@ -175,7 +175,7 @@ describe('review lock routes and save enforcement', () => {
       query: jest.fn(),
       release: jest.fn(),
     };
-    (pool as any).connect = jest.fn().mockResolvedValue(mockClient);
+    (pool as unknown as { connect: jest.Mock }).connect = jest.fn().mockResolvedValue(mockClient);
 
     const users = {
       'admin-token': { uid: 1, email: 'admin@admin.com', role: 'Admin', contributor_id: 1 },
