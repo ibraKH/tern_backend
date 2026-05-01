@@ -34,3 +34,7 @@ coverage/
 
 # Optional: Docker
 docker-data/
+package-lock.json
+package.json
+tsconfig.json
+

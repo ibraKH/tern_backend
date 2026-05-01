@@ -11,9 +11,10 @@
     "typeRoots": [
       "./node_modules/@types",
       "./src/types"
-    ]
+    ],
+    "types": ["jest", "node"]
   },
-  "include": ["src/**/*.ts"],
+  "include": ["src/**/*.ts", "**/*.test.ts", "**/*.spec.ts"],
   "exclude": ["node_modules", "dist"],
   "ts-node": {
     "files": true
