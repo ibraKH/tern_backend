@@ -75,8 +75,7 @@ describe('GET /api/admin/stats', () => {
     mockQuery
       .mockResolvedValueOnce({ rows: [{ count: 10 }] })
       .mockResolvedValueOnce({ rows: [{ count: 7 }] })
-      .mockResolvedValueOnce({ rows: [{ count: 3 }] })
-      .mockResolvedValueOnce({ rows: [{ count: 2 }] });
+      .mockResolvedValueOnce({ rows: [{ count: 3 }] });
 
     const res = await request(app)
       .get('/api/admin/stats')
@@ -87,7 +86,7 @@ describe('GET /api/admin/stats', () => {
       totalUsers: 10,
       verifiedUsers: 7,
       unverifiedUsers: 3,
-      activeSessions: 2,
+      activeSessions: 0, // getConnectedUserCount() — no Socket.IO connections in test env
     });
   });
 
