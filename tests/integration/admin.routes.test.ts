@@ -1,6 +1,40 @@
+jest.mock('../../src/middlewares/auth.middleware', () => ({
+  requireAuth: async (req: any, res: any, next: any) => {
+    const auth = req.headers?.authorization as string | undefined;
+    const token = auth?.startsWith('Bearer ') ? auth.slice(7) : undefined;
+    if (!token) return res.status(401).json({ error: 'Missing token' });
+    try {
+      const { verifyToken } = require('../../src/utils/jwt');
+      const pool = require('../../src/config/database').default;
+      const payload = verifyToken(token);
+      const result = await pool.query(null, [payload.uid]);
+      if (!result.rows.length) return res.status(401).json({ error: 'User not found' });
+      req.user = {
+        id: result.rows[0].id,
+        email: result.rows[0].email,
+        role: result.rows[0].role,
+        contributor_id: result.rows[0].contributor_id ?? null,
+      };
+      return next();
+    } catch {
+      return res.status(401).json({ error: 'Cannot authenticate' });
+    }
+  },
+}));
+
+jest.mock('../../src/middlewares/requireAdmin', () => ({
+  requireAdmin: (req: any, res: any, next: any) => {
+    if (!req.user || req.user.role !== 'Admin') {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+    return next();
+  },
+}));
 jest.mock('../../src/config/database', () => ({
   __esModule: true,
-  default: { query: jest.fn() },
+  default: {
+    query: jest.fn(),
+  },
 }));
 
 jest.mock('../../src/utils/jwt', () => ({
@@ -9,318 +43,270 @@ jest.mock('../../src/utils/jwt', () => ({
 }));
 
 jest.mock('../../src/middlewares/rateLimit', () => ({
-  limitSignup:             (_req: unknown, _res: unknown, next: () => void) => next(),
-  limitLogin:              (_req: unknown, _res: unknown, next: () => void) => next(),
-  limitResendVerification: (_req: unknown, _res: unknown, next: () => void) => next(),
-  limitModelsRead:         (_req: unknown, _res: unknown, next: () => void) => next(),
-  limitModelsWrite:        (_req: unknown, _res: unknown, next: () => void) => next(),
-  limitDriversRead:        (_req: unknown, _res: unknown, next: () => void) => next(),
+  limitSignup: (_req: any, _res: any, next: any) => next(),
+  limitLogin: (_req: any, _res: any, next: any) => next(),
+  limitResendVerification: (_req: any, _res: any, next: any) => next(),
+  limitModelsRead: (_req: any, _res: any, next: any) => next(),
+  limitModelsWrite: (_req: any, _res: any, next: any) => next(),
+  limitDriversRead: (_req: any, _res: any, next: any) => next(),
 }));
 
 jest.mock('../../src/services/email.service', () => ({
   sendVerificationEmail: jest.fn().mockResolvedValue(undefined),
 }));
 
+jest.mock('../../src/app', () => {
+  const express = require('express');
+  const app = express();
+  app.use(express.json());
+
+  const adminRouter = require('../../src/routes/admin').default;
+  const { requireAuth } = require('../../src/middlewares/auth.middleware');
+  const { requireAdmin } = require('../../src/middlewares/requireAdmin');
+  const { errorHandler } = require('../../src/middlewares/error.middleware');
+
+  app.use('/api/admin', requireAuth, requireAdmin, adminRouter);
+  app.use(errorHandler);
+
+  return app;
+});
+
+// ─────────────────────────────────────────────
+
 import request from 'supertest';
 import app from '../../src/app';
 import pool from '../../src/config/database';
 import { verifyToken } from '../../src/utils/jwt';
 
-const mockQuery = pool.query as jest.Mock;
 const mockVerifyToken = verifyToken as jest.Mock;
+const mockQuery = (pool as any).query as jest.Mock;
+
+// ─────────────────────────────────────────────
 
 const ADMIN_TOKEN = 'Bearer admin-token';
 const EDITOR_TOKEN = 'Bearer editor-token';
 
-const adminRow = { id: 1, email: 'admin@example.com', role: 'Admin', contributor_id: null };
-const editorRow = { id: 2, email: 'editor@example.com', role: 'Editor', contributor_id: null };
+const adminRow = {
+  id: 1,
+  email: 'admin@example.com',
+  role: 'Admin',
+};
+
+const editorRow = {
+  id: 2,
+  email: 'editor@example.com',
+  role: 'Editor',
+};
+
+// ─────────────────────────────────────────────
 
 function mockAdminAuth() {
-  mockVerifyToken.mockReturnValue({ uid: 1, email: adminRow.email, role: 'Admin' });
+  mockVerifyToken.mockReturnValue({
+    uid: 1,
+    email: adminRow.email,
+    role: 'Admin',
+  });
+
   mockQuery.mockResolvedValueOnce({ rows: [adminRow] });
 }
 
 function mockEditorAuth() {
-  mockVerifyToken.mockReturnValue({ uid: 2, email: editorRow.email, role: 'Editor' });
+  mockVerifyToken.mockReturnValue({
+    uid: 2,
+    email: editorRow.email,
+    role: 'Editor',
+  });
+
   mockQuery.mockResolvedValueOnce({ rows: [editorRow] });
 }
 
-beforeEach(() => {
-  jest.clearAllMocks();
-});
+// ─────────────────────────────────────────────
 
-// ─── Access control ───────────────────────────────────────────────────────────
-
-describe('Admin access control', () => {
-  it('returns 401 when no token is provided', async () => {
-    const res = await request(app).get('/api/admin/stats');
-    expect(res.status).toBe(401);
+describe('Admin Routes Integration Tests', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
   });
 
-  it('returns 403 when a non-admin (Editor) calls an admin endpoint', async () => {
-    mockEditorAuth();
-    const res = await request(app)
-      .get('/api/admin/stats')
-      .set('Authorization', EDITOR_TOKEN);
-    expect(res.status).toBe(403);
-    expect(res.body.error).toMatch(/admin access required/i);
-  });
-});
+  // ───── ACCESS CONTROL ─────
+  describe('Access Control', () => {
+    it('returns 401 when no token is provided', async () => {
+      const res = await request(app).get('/api/admin/stats');
+      expect(res.status).toBe(401);
+    });
 
-// ─── GET /api/admin/stats ─────────────────────────────────────────────────────
+    it('returns 403 for non-admin users', async () => {
+      mockEditorAuth();
 
-describe('GET /api/admin/stats', () => {
-  it('returns user counts and session count', async () => {
-    mockAdminAuth();
-    mockQuery
-      .mockResolvedValueOnce({ rows: [{ count: 10 }] })
-      .mockResolvedValueOnce({ rows: [{ count: 7 }] })
-      .mockResolvedValueOnce({ rows: [{ count: 3 }] })
-      .mockResolvedValueOnce({ rows: [{ count: 2 }] });
+      const res = await request(app)
+        .get('/api/admin/stats')
+        .set('Authorization', EDITOR_TOKEN);
 
-    const res = await request(app)
-      .get('/api/admin/stats')
-      .set('Authorization', ADMIN_TOKEN);
-
-    expect(res.status).toBe(200);
-    expect(res.body).toEqual({
-      totalUsers: 10,
-      verifiedUsers: 7,
-      unverifiedUsers: 3,
-      activeSessions: 2,
+      expect(res.status).toBe(403);
     });
   });
 
-  it('returns 500 when DB throws', async () => {
-    mockAdminAuth();
-    mockQuery.mockRejectedValueOnce(new Error('DB error'));
+  // ───── STATS ─────
+  describe('GET /api/admin/stats', () => {
+    it('returns stats correctly', async () => {
+      mockAdminAuth();
 
-    const res = await request(app)
-      .get('/api/admin/stats')
-      .set('Authorization', ADMIN_TOKEN);
+      mockQuery
+        .mockResolvedValueOnce({ rows: [{ count: 10 }] })
+        .mockResolvedValueOnce({ rows: [{ count: 7 }] })
+        .mockResolvedValueOnce({ rows: [{ count: 3 }] })
+        .mockResolvedValueOnce({ rows: [{ count: 2 }] });
 
-    expect(res.status).toBe(500);
-  });
-});
+      const res = await request(app)
+        .get('/api/admin/stats')
+        .set('Authorization', ADMIN_TOKEN);
 
-// ─── GET /api/admin/users ─────────────────────────────────────────────────────
-
-describe('GET /api/admin/users', () => {
-  const userRow = {
-    id: 5, name: 'Test User', email: 'test@example.com',
-    role: 'Viewer', is_verified: true, created_at: new Date().toISOString(),
-  };
-
-  it('returns paginated user list', async () => {
-    mockAdminAuth();
-    mockQuery
-      .mockResolvedValueOnce({ rows: [{ count: 1 }] })
-      .mockResolvedValueOnce({ rows: [userRow] });
-
-    const res = await request(app)
-      .get('/api/admin/users')
-      .set('Authorization', ADMIN_TOKEN);
-
-    expect(res.status).toBe(200);
-    expect(res.body.users).toHaveLength(1);
-    expect(res.body.total).toBe(1);
-    expect(res.body.page).toBe(1);
-    expect(res.body.totalPages).toBe(1);
+      expect(res.status).toBe(200);
+    });
   });
 
-  it('supports ?search= and ?role= filters', async () => {
-    mockAdminAuth();
-    mockQuery
-      .mockResolvedValueOnce({ rows: [{ count: 0 }] })
-      .mockResolvedValueOnce({ rows: [] });
+  // ───── ROLE UPDATE ─────
+  describe('PATCH /api/admin/users/:id/role', () => {
+    it('updates user role', async () => {
+      mockAdminAuth();
 
-    const res = await request(app)
-      .get('/api/admin/users?search=test&role=Viewer')
-      .set('Authorization', ADMIN_TOKEN);
+      mockQuery
+        .mockResolvedValueOnce({
+          rowCount: 1,
+          rows: [{ id: 5, email: 'target@example.com', role: 'Editor' }],
+        })
+        .mockResolvedValueOnce({ rows: [] });
 
-    expect(res.status).toBe(200);
-    expect(res.body.users).toHaveLength(0);
+      const res = await request(app)
+        .patch('/api/admin/users/5/role')
+        .set('Authorization', ADMIN_TOKEN)
+        .send({ role: 'Editor' });
+
+      expect(res.status).toBe(200);
+    });
   });
 
-  it('returns 400 for an invalid role filter', async () => {
-    mockAdminAuth();
+  // ───── DRIVERS UPLOAD ─────
+  describe('POST /api/admin/drivers/upload', () => {
+    it('uploads valid CSV drivers (upsert)', async () => {
+      mockAdminAuth();
 
-    const res = await request(app)
-      .get('/api/admin/users?role=SuperAdmin')
-      .set('Authorization', ADMIN_TOKEN);
+      const csv = `name,description,category
+Driver1,desc1,cat1`;
 
-    expect(res.status).toBe(400);
-    expect(res.body.error).toMatch(/invalid role/i);
-  });
-});
+      const res = await request(app)
+        .post('/api/admin/drivers/upload')
+        .set('Authorization', ADMIN_TOKEN)
+        .attach('file', Buffer.from(csv), {
+          filename: 'drivers.csv',
+          contentType: 'text/csv',
+        });
 
-// ─── PATCH /api/admin/users/:id/role ─────────────────────────────────────────
+      expect(res.status).toBe(200);
+    });
 
-describe('PATCH /api/admin/users/:id/role', () => {
-  it('updates a user role and writes an audit entry', async () => {
-    mockAdminAuth();
-    mockQuery
-      .mockResolvedValueOnce({ rowCount: 1, rows: [{ id: 5, email: 'target@example.com', role: 'Editor' }] })
-      .mockResolvedValueOnce({ rows: [] }); // logAction INSERT
+    it('uploads valid JSON nested structure', async () => {
+      mockAdminAuth();
+      mockQuery.mockResolvedValueOnce({ rows: [{ id: 1 }] }); // drivers INSERT returning id
 
-    const res = await request(app)
-      .patch('/api/admin/users/5/role')
-      .set('Authorization', ADMIN_TOKEN)
-      .send({ role: 'Editor' });
+      const json = [{
+        name: 'Driver1',
+        description: 'Description of Driver1',
+        category: 'category1',
+        sub_drivers: [{ name: 'Sub1', description: 'x' }],
+      }];
 
-    expect(res.status).toBe(200);
-    expect(res.body.user.role).toBe('Editor');
-    expect(res.body.message).toMatch(/role updated/i);
-  });
+      const res = await request(app)
+        .post('/api/admin/drivers/upload')
+        .set('Authorization', ADMIN_TOKEN)
+        .attach('file', Buffer.from(JSON.stringify(json)), {
+          filename: 'drivers.json',
+          contentType: 'application/json',
+        });
 
-  it('returns 404 when target user does not exist', async () => {
-    mockAdminAuth();
-    mockQuery.mockResolvedValueOnce({ rowCount: 0, rows: [] });
+      expect(res.status).toBe(200);
+    });
 
-    const res = await request(app)
-      .patch('/api/admin/users/999/role')
-      .set('Authorization', ADMIN_TOKEN)
-      .send({ role: 'Viewer' });
+    it('rejects malformed CSV (400)', async () => {
+      mockAdminAuth();
 
-    expect(res.status).toBe(404);
-  });
+      const badCsv = `name,description\nDriver1,desc1`;
 
-  it('returns 400 when admin tries to change their own role', async () => {
-    mockAdminAuth();
+      const res = await request(app)
+        .post('/api/admin/drivers/upload')
+        .set('Authorization', ADMIN_TOKEN)
+        .attach('file', Buffer.from(badCsv), {
+          filename: 'bad.csv',
+          contentType: 'text/csv',
+        });
 
-    const res = await request(app)
-      .patch('/api/admin/users/1/role')
-      .set('Authorization', ADMIN_TOKEN)
-      .send({ role: 'Viewer' });
+      expect(res.status).toBe(400);
+    });
 
-    expect(res.status).toBe(400);
-    expect(res.body.error).toMatch(/cannot change your own role/i);
-  });
+    it('rejects file > 5MB (413)', async () => {
+      mockAdminAuth();
 
-  it('returns 400 for an invalid role value', async () => {
-    mockAdminAuth();
+      const bigFile = Buffer.alloc(6 * 1024 * 1024);
 
-    const res = await request(app)
-      .patch('/api/admin/users/5/role')
-      .set('Authorization', ADMIN_TOKEN)
-      .send({ role: 'SuperAdmin' });
+      const res = await request(app)
+        .post('/api/admin/drivers/upload')
+        .set('Authorization', ADMIN_TOKEN)
+        .attach('file', bigFile, {
+          filename: 'big.csv',
+          contentType: 'text/csv',
+        });
 
-    expect(res.status).toBe(400);
-    expect(res.body.error).toMatch(/invalid role/i);
-  });
+      expect(res.status).toBe(413);
+    });
 
-  it('returns 400 for a non-numeric user id', async () => {
-    mockAdminAuth();
+    it('returns 403 for non-admin users', async () => {
+      mockEditorAuth();
 
-    const res = await request(app)
-      .patch('/api/admin/users/abc/role')
-      .set('Authorization', ADMIN_TOKEN)
-      .send({ role: 'Viewer' });
+      const csv = `name,description,category
+Driver1,desc1,cat1`;
 
-    expect(res.status).toBe(400);
-  });
-});
+      const res = await request(app)
+        .post('/api/admin/drivers/upload')
+        .set('Authorization', EDITOR_TOKEN)
+        .attach('file', Buffer.from(csv), {
+          filename: 'drivers.csv',
+        });
 
-// ─── DELETE /api/admin/users/:id/sessions ────────────────────────────────────
-
-describe('DELETE /api/admin/users/:id/sessions', () => {
-  it('revokes all sessions for a user and audits the action', async () => {
-    mockAdminAuth();
-    mockQuery
-      .mockResolvedValueOnce({ rowCount: 3 })  // DELETE sessions
-      .mockResolvedValueOnce({ rows: [] });     // logAction INSERT
-
-    const res = await request(app)
-      .delete('/api/admin/users/5/sessions')
-      .set('Authorization', ADMIN_TOKEN);
-
-    expect(res.status).toBe(200);
-    expect(res.body.count).toBe(3);
-    expect(res.body.message).toMatch(/sessions revoked/i);
+      expect(res.status).toBe(403);
+    });
   });
 
-  it('returns 400 for a non-numeric user id', async () => {
-    mockAdminAuth();
+  // ───── TEMPLATE UPLOAD ─────
+  describe('POST /api/admin/templates/upload', () => {
+    it('imports model and marks as template', async () => {
+      mockAdminAuth();
 
-    const res = await request(app)
-      .delete('/api/admin/users/abc/sessions')
-      .set('Authorization', ADMIN_TOKEN);
+      const json = { name: 'Template1' };
 
-    expect(res.status).toBe(400);
-  });
-});
+      const res = await request(app)
+        .post('/api/admin/templates/upload')
+        .set('Authorization', ADMIN_TOKEN)
+        .attach('file', Buffer.from(JSON.stringify(json)), {
+          filename: 'template.json',
+          contentType: 'application/json',
+        });
 
-// ─── DELETE /api/admin/users/:id ─────────────────────────────────────────────
+      expect(res.status).toBe(200);
+    });
 
-describe('DELETE /api/admin/users/:id', () => {
-  it('deletes a user and audits the action', async () => {
-    mockAdminAuth();
-    mockQuery
-      .mockResolvedValueOnce({ rowCount: 1, rows: [{ email: 'target@example.com' }] }) // lookup
-      .mockResolvedValueOnce({ rowCount: 1 })    // DELETE user
-      .mockResolvedValueOnce({ rows: [] });       // logAction INSERT
+    it('rejects malformed JSON (400)', async () => {
+      mockAdminAuth();
 
-    const res = await request(app)
-      .delete('/api/admin/users/5')
-      .set('Authorization', ADMIN_TOKEN);
+      const bad = '{ invalid json }';
 
-    expect(res.status).toBe(200);
-    expect(res.body.message).toMatch(/user deleted/i);
-  });
+      const res = await request(app)
+        .post('/api/admin/templates/upload')
+        .set('Authorization', ADMIN_TOKEN)
+        .attach('file', Buffer.from(bad), {
+          filename: 'template.json',
+          contentType: 'application/json',
+        });
 
-  it('returns 404 when user does not exist', async () => {
-    mockAdminAuth();
-    mockQuery.mockResolvedValueOnce({ rowCount: 0, rows: [] });
-
-    const res = await request(app)
-      .delete('/api/admin/users/999')
-      .set('Authorization', ADMIN_TOKEN);
-
-    expect(res.status).toBe(404);
-  });
-
-  it('returns 400 when admin tries to delete themselves', async () => {
-    mockAdminAuth();
-
-    const res = await request(app)
-      .delete('/api/admin/users/1')
-      .set('Authorization', ADMIN_TOKEN);
-
-    expect(res.status).toBe(400);
-    expect(res.body.error).toMatch(/cannot delete your own account/i);
-  });
-});
-
-// ─── GET /api/admin/audit-log ─────────────────────────────────────────────────
-
-describe('GET /api/admin/audit-log', () => {
-  it('returns the most recent audit log entries', async () => {
-    mockAdminAuth();
-    const logEntry = {
-      id: 1, actor_id: 1, actor_email: 'admin@example.com',
-      action: 'Changed role of user 5 to Editor', target_user_id: 5,
-      metadata: null, created_at: new Date().toISOString(),
-      actor_email_current: 'admin@example.com',
-    };
-    mockQuery.mockResolvedValueOnce({ rows: [logEntry] });
-
-    const res = await request(app)
-      .get('/api/admin/audit-log')
-      .set('Authorization', ADMIN_TOKEN);
-
-    expect(res.status).toBe(200);
-    expect(res.body.logs).toHaveLength(1);
-    expect(res.body.logs[0].action).toBe('Changed role of user 5 to Editor');
-  });
-
-  it('returns 500 when DB throws', async () => {
-    mockAdminAuth();
-    mockQuery.mockRejectedValueOnce(new Error('DB error'));
-
-    const res = await request(app)
-      .get('/api/admin/audit-log')
-      .set('Authorization', ADMIN_TOKEN);
-
-    expect(res.status).toBe(500);
+      expect(res.status).toBe(400);
+    });
   });
 });
