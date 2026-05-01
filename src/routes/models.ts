@@ -414,7 +414,7 @@ models.get('/templates', limitModelsRead, async (req: Request, res: Response) =>
   }
 });
 
-models.get('/:name/review-lock', limitModelsRead, async (req: Request, res: Response) => {
+models.get('/:name/review-lock', limitModelsRead, requireRole(["Admin", "Editor", "Viewer"]), async (req: Request, res: Response) => {
   try {
     const { name } = req.params as { name: string };
     const status = await getModelLockStatus(name);
