@@ -3,19 +3,27 @@
     "target": "ES2020",
     "module": "CommonJS",
     "moduleResolution": "Node",
-    "verbatimModuleSyntax": false,
     "esModuleInterop": true,
-    "rootDir": "src",
+    "verbatimModuleSyntax": false,
+    "rootDir": ".",
     "outDir": "dist",
     "strict": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "types": ["node", "jest"],
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"]
+    },
     "typeRoots": [
       "./node_modules/@types",
       "./src/types"
     ]
   },
-  "include": ["src/**/*.ts"],
-  "exclude": ["node_modules", "dist"],
-  "ts-node": {
-    "files": true
-  }
+  "include": [
+    "src/**/*.ts", 
+    "tests/**/*.ts", 
+  
+  ],
+  "exclude": ["node_modules", "dist"]
 }

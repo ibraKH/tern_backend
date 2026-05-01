@@ -1,6 +1,7 @@
 import type { ErrorRequestHandler } from "express";
 import type { ErrorCode } from "../errors";
 import { AppError } from "../errors";
+import { MulterError } from "multer";
 
 type ErrorResponse = {
   error: {
@@ -13,6 +14,15 @@ type ErrorResponse = {
 };
 
 export const errorHandler: ErrorRequestHandler = (err, req, res, _next) => {
+  if (err instanceof MulterError) {
+    if (err.code === "LIMIT_FILE_SIZE") {
+      const appErr = new AppError(413, "PAYLOAD_TOO_LARGE", "file too large (max 5 MB)");
+      err = appErr;
+    } else {
+      const appErr = new AppError(400, "VALIDATION_ERROR", `upload error: ${err.code}`);
+      err = appErr;
+    }
+  }
   const isApp = err instanceof AppError;
 
   const status = isApp ? err.status : 500;

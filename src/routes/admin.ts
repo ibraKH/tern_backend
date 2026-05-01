@@ -1,10 +1,15 @@
 import type { Request, Response } from "express";
 import express from "express";
+import multer from "multer";
 import { RateLimiterMemory } from "rate-limiter-flexible";
 import pool from "../config/database";
 import { logAction } from "../utils/auditLog";
+import { requireRole } from "../middlewares/role.middleware";
+import { handleDriverUpload } from "../services/admin/drivers-upload.service";
+import { handleTemplateUpload } from "../services/admin/template-upload.service"; // Ensure this file exists
 
 const adminRouter = express.Router();
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } }); // 5 MB limit
 
 interface AuthenticatedRequest extends Request {
   user?: {
@@ -227,6 +232,34 @@ adminRouter.get("/audit-log", async (_req: Request, res: Response) => {
   } catch (err) {
     console.error("[GET /api/admin/audit-log]", err);
     res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// --- POST /admin/drivers/upload ---
+adminRouter.post("/drivers/upload", requireRole(["Admin"]), upload.single("file"), async (req, res) => {
+  try {
+    if (!req.file) {
+      throw { status: 400, message: "No file uploaded" };
+    }
+    const result = await handleDriverUpload(req.file);
+    res.status(200).json(result);
+  } catch (error) {
+    const err = error as { status?: number; message: string };
+    res.status(err.status || 400).json({ message: err.message });
+  }
+});
+
+// --- POST /admin/templates/upload ---
+adminRouter.post("/templates/upload", requireRole(["Admin"]), upload.single("file"), async (req, res) => {
+  try {
+    if (!req.file) {
+      throw { status: 400, message: "No file uploaded" };
+    }
+    const result = await handleTemplateUpload(req.file);
+    res.status(200).json(result);
+  } catch (error) {
+    const err = error as { status?: number; message: string };
+    res.status(err.status || 400).json({ message: err.message });
   }
 });
 

@@ -1,6 +1,7 @@
 import type { Request, Response, NextFunction } from "express";
 import type { ZodError, ZodIssue, ZodTypeAny } from "zod";
 import { ValidationError } from "../errors";
+import { z } from 'zod';
 
 type Section = "body" | "params" | "query";
 
@@ -92,4 +93,34 @@ export function validate(schemas: Schemas) {
       return next(err as Error);
     }
   };
+}
+
+export const driverSchema = z.object({
+  name: z.string(),
+  description: z.string(),
+  category: z.string(),
+});
+
+export const subDriverSchema = z.object({
+  name: z.string(),
+  description: z.string(),
+});
+
+export const driverJSONSchema = z.array(
+  driverSchema.extend({
+    sub_drivers: z.array(subDriverSchema),
+  })
+);
+
+export const stmModelSchema = z.object({
+  name: z.string(),
+  // Add other STM model fields here as needed
+});
+
+export function validateDriverJSON(data: unknown) {
+  driverJSONSchema.parse(data);
+}
+
+export function validateSTMModel(data: unknown) {
+  stmModelSchema.parse(data);
 }

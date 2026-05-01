@@ -78,14 +78,21 @@ app.use('/drivers', requireAuth, driversRoutes);
 app.use('/collab', collabRoutes);
 app.use('/notifications', notificationsRoutes);
 app.use('/api/admin', requireAuth, requireAdmin, adminRoutes);
+app.use((req, _res, next) => {
+  console.log(`[DEBUG ROUTE] ${req.method} ${req.path}`);
+  console.log("User:", (req as any).user);
+  next();
+});
 app.get("/openapi.json", (_req, res) => res.json(swaggerSpec));
 
 // Error handling middleware
 app.use(errorHandler);
+//console.log(app._router.stack.map(r => r?.route?.path).filter(Boolean));
 
 // 404 handler
 const frontendUrl = process.env.FRONTEND_URL || 'https://stm-8nizc.ondigitalocean.app';
 app.use((_req: Request, res: Response) => {
+ // console.log(app._router.stack.map(r => r?.route?.path).filter(Boolean));
   res.redirect(`${frontendUrl}/notfound`);
 });
 
