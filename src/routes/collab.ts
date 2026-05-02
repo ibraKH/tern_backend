@@ -16,8 +16,63 @@ type AuthedRequest = Request & { user?: { id: number; email: string; role: strin
 
 const collab = express.Router();
 
+/**
+ * @openapi
+ * tags:
+ *   - name: Collab
+ *     description: Collaborative features — activity log, comments, and milestones per model
+ */
+
 // ── Activity Log ─────────────────────────────────────────────────────────────
 
+/**
+ * @openapi
+ * /collab/{modelName}/activity:
+ *   get:
+ *     summary: Get recent activity log entries for a model
+ *     tags: [Collab]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: modelName
+ *         required: true
+ *         description: STM model name
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: limit
+ *         description: Maximum entries to return (1–100, default 20)
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           maximum: 100
+ *           default: 20
+ *     responses:
+ *       200:
+ *         description: Activity entries
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 entries:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *       400:
+ *         description: Invalid modelName
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
 collab.get('/:modelName/activity', requireAuth, async (req: Request, res: Response) => {
   const { modelName } = req.params as { modelName: string };
   if (!modelName?.trim()) return res.status(400).json({ error: 'modelName must be a non-empty string' });
@@ -40,6 +95,40 @@ collab.get('/:modelName/activity', requireAuth, async (req: Request, res: Respon
 
 // ── Comments ─────────────────────────────────────────────────────────────────
 
+/**
+ * @openapi
+ * /collab/{modelName}/comments:
+ *   get:
+ *     summary: Get all comments for a model
+ *     tags: [Collab]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: modelName
+ *         required: true
+ *         description: STM model name
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: List of comments
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 comments:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
 collab.get('/:modelName/comments', requireAuth, async (req: Request, res: Response) => {
   const { modelName } = req.params as { modelName: string };
   try {
@@ -51,6 +140,65 @@ collab.get('/:modelName/comments', requireAuth, async (req: Request, res: Respon
   }
 });
 
+/**
+ * @openapi
+ * /collab/{modelName}/comments:
+ *   post:
+ *     summary: Create a new comment on a model
+ *     tags: [Collab]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: modelName
+ *         required: true
+ *         description: STM model name
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [body]
+ *             properties:
+ *               body:
+ *                 type: string
+ *                 maxLength: 2000
+ *               entityType:
+ *                 type: string
+ *                 enum: [node, edge]
+ *                 nullable: true
+ *               entityId:
+ *                 type: integer
+ *                 nullable: true
+ *               parentId:
+ *                 type: integer
+ *                 nullable: true
+ *     responses:
+ *       201:
+ *         description: Comment created
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 comment:
+ *                   type: object
+ *       400:
+ *         description: Missing body, body too long, or invalid entityType
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
 collab.post('/:modelName/comments', requireAuth, async (req: Request, res: Response) => {
   const { modelName } = req.params as { modelName: string };
   const user = (req as AuthedRequest).user!;
@@ -98,6 +246,49 @@ collab.post('/:modelName/comments', requireAuth, async (req: Request, res: Respo
   }
 });
 
+/**
+ * @openapi
+ * /collab/{modelName}/comments/{id}/resolve:
+ *   patch:
+ *     summary: Mark a comment as resolved
+ *     tags: [Collab]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: modelName
+ *         required: true
+ *         schema:
+ *           type: string
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         description: Comment ID
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Comment resolved
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *       403:
+ *         description: Not the comment author or insufficient role
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
 collab.patch('/:modelName/comments/:id/resolve', requireAuth, async (req: Request, res: Response) => {
   const user = (req as AuthedRequest).user!;
   try {
@@ -109,6 +300,49 @@ collab.patch('/:modelName/comments/:id/resolve', requireAuth, async (req: Reques
   }
 });
 
+/**
+ * @openapi
+ * /collab/{modelName}/comments/{id}:
+ *   delete:
+ *     summary: Delete a comment
+ *     tags: [Collab]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: modelName
+ *         required: true
+ *         schema:
+ *           type: string
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         description: Comment ID
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Comment deleted
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *       403:
+ *         description: Not the comment author or insufficient role
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
 collab.delete('/:modelName/comments/:id', requireAuth, async (req: Request, res: Response) => {
   const user = (req as AuthedRequest).user!;
   try {
@@ -122,6 +356,39 @@ collab.delete('/:modelName/comments/:id', requireAuth, async (req: Request, res:
 
 // ── Milestones ───────────────────────────────────────────────────────────────
 
+/**
+ * @openapi
+ * /collab/{modelName}/milestones:
+ *   get:
+ *     summary: List all milestones for a model
+ *     tags: [Collab]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: modelName
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Milestone list
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 milestones:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
 collab.get('/:modelName/milestones', requireAuth, async (req: Request, res: Response) => {
   const { modelName } = req.params as { modelName: string };
   try {
@@ -133,6 +400,55 @@ collab.get('/:modelName/milestones', requireAuth, async (req: Request, res: Resp
   }
 });
 
+/**
+ * @openapi
+ * /collab/{modelName}/milestones:
+ *   post:
+ *     summary: Create a new milestone snapshot for a model
+ *     description: Requires Admin or Editor role.
+ *     tags: [Collab]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: modelName
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [label]
+ *             properties:
+ *               label:
+ *                 type: string
+ *                 maxLength: 100
+ *     responses:
+ *       201:
+ *         description: Milestone created
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 milestone:
+ *                   type: object
+ *       400:
+ *         description: Missing or invalid label
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
 collab.post(
   '/:modelName/milestones',
   requireAuth,
@@ -171,6 +487,49 @@ collab.post(
   }
 );
 
+/**
+ * @openapi
+ * /collab/{modelName}/milestones/{id}:
+ *   get:
+ *     summary: Get a single milestone by ID
+ *     tags: [Collab]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: modelName
+ *         required: true
+ *         schema:
+ *           type: string
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         description: Milestone ID
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Milestone found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 milestone:
+ *                   type: object
+ *       404:
+ *         description: Milestone not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
 collab.get('/:modelName/milestones/:id', requireAuth, async (req: Request, res: Response) => {
   const { modelName, id } = req.params as { modelName: string; id: string };
   try {
@@ -182,6 +541,49 @@ collab.get('/:modelName/milestones/:id', requireAuth, async (req: Request, res: 
   }
 });
 
+/**
+ * @openapi
+ * /collab/{modelName}/milestones/{id}:
+ *   delete:
+ *     summary: Delete a milestone (Admin only)
+ *     tags: [Collab]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: modelName
+ *         required: true
+ *         schema:
+ *           type: string
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         description: Milestone ID
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Milestone deleted
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *       403:
+ *         description: Insufficient role (Admin required)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       404:
+ *         description: Milestone not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
 collab.delete(
   '/:modelName/milestones/:id',
   requireAuth,
@@ -194,6 +596,55 @@ collab.delete(
   }
 );
 
+/**
+ * @openapi
+ * /collab/{modelName}/milestones/{id}/restore:
+ *   post:
+ *     summary: Restore a model from a milestone snapshot (Admin/Editor only)
+ *     tags: [Collab]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: modelName
+ *         required: true
+ *         schema:
+ *           type: string
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         description: Milestone ID
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Model restored from milestone snapshot
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *       403:
+ *         description: Insufficient role (Admin or Editor required)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       404:
+ *         description: Milestone not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
 collab.post(
   '/:modelName/milestones/:id/restore',
   requireAuth,

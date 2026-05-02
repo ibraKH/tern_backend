@@ -1,7 +1,6 @@
 import express from 'express';
 import type { Request, Response } from 'express';
 
-import { requireAuth } from '../middlewares/auth.middleware';
 import pool from '../config/database';
 import { getModelLockStatus } from '../services/models/reviewLock.service';
 
@@ -12,10 +11,71 @@ const LOCK_TTL_SECONDS = 120;
 const locks = express.Router();
 
 /**
- * POST /models/:name/lock/acquire
- * Acquire an exclusive model-level editing lock (REST-based, used by frontend on model open).
+ * @openapi
+ * tags:
+ *   - name: Locks
+ *     description: REST-based collaborative editing locks for STM models
  */
-locks.post('/:name/lock/acquire', requireAuth, async (req: Request, res: Response) => {
+
+/**
+ * @openapi
+ * /models/{name}/lock/acquire:
+ *   post:
+ *     summary: Acquire or refresh an exclusive editing lock on a model
+ *     description: >
+ *       Returns `{success: true}` when the lock is granted or refreshed (same user).
+ *       Returns `{success: false, locked: true, ...}` when the lock is held by another user.
+ *     tags: [Locks]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: name
+ *         required: true
+ *         description: STM model name
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Lock acquired, refreshed, or already held by another user
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 locked:
+ *                   type: boolean
+ *                 lockId:
+ *                   type: string
+ *                 lockedBy:
+ *                   type: string
+ *                 owner:
+ *                   type: boolean
+ *                 expiresAt:
+ *                   type: string
+ *                   format: date-time
+ *       403:
+ *         description: Model is locked for review
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       404:
+ *         description: Model not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+locks.post('/:name/lock/acquire', async (req: Request, res: Response) => {
   const user = (req as AuthedRequest).user!;
   const { name } = req.params as { name: string };
 
@@ -96,10 +156,77 @@ locks.post('/:name/lock/acquire', requireAuth, async (req: Request, res: Respons
 });
 
 /**
- * POST /models/:name/lock/renew
- * Renew an existing model-level lock.
+ * @openapi
+ * /models/{name}/lock/renew:
+ *   post:
+ *     summary: Renew an existing model editing lock
+ *     tags: [Locks]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: name
+ *         required: true
+ *         description: STM model name
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [lockId]
+ *             properties:
+ *               lockId:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Lock renewed
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 locked:
+ *                   type: boolean
+ *                 lockId:
+ *                   type: string
+ *                 lockedBy:
+ *                   type: string
+ *                 owner:
+ *                   type: boolean
+ *                 expiresAt:
+ *                   type: string
+ *                   format: date-time
+ *       400:
+ *         description: Missing lockId
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       403:
+ *         description: Model is locked for review
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       404:
+ *         description: Lock not found or not owned by caller
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
  */
-locks.post('/:name/lock/renew', requireAuth, async (req: Request, res: Response) => {
+locks.post('/:name/lock/renew', async (req: Request, res: Response) => {
   const user = (req as AuthedRequest).user!;
   const { name } = req.params as { name: string };
   const { lockId } = req.body as { lockId?: string };
@@ -132,10 +259,54 @@ locks.post('/:name/lock/renew', requireAuth, async (req: Request, res: Response)
 });
 
 /**
- * POST /models/:name/lock/release
- * Release a model-level lock.
+ * @openapi
+ * /models/{name}/lock/release:
+ *   post:
+ *     summary: Release a model editing lock
+ *     tags: [Locks]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: name
+ *         required: true
+ *         description: STM model name
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [lockId]
+ *             properties:
+ *               lockId:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Lock released
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *       400:
+ *         description: Missing lockId
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
  */
-locks.post('/:name/lock/release', requireAuth, async (req: Request, res: Response) => {
+locks.post('/:name/lock/release', async (req: Request, res: Response) => {
   const user = (req as AuthedRequest).user!;
   const { lockId } = req.body as { lockId?: string };
   if (!lockId) return res.status(400).json({ error: 'lockId is required' });
@@ -153,10 +324,60 @@ locks.post('/:name/lock/release', requireAuth, async (req: Request, res: Respons
 });
 
 /**
- * GET /models/:name/lock
- * Check current lock status for a model.
+ * @openapi
+ * /models/{name}/lock:
+ *   get:
+ *     summary: Check the current lock status of a model
+ *     tags: [Locks]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: name
+ *         required: true
+ *         description: STM model name
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Lock status (unlocked or locked with details)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               oneOf:
+ *                 - type: object
+ *                   properties:
+ *                     locked:
+ *                       type: boolean
+ *                       enum: [false]
+ *                 - type: object
+ *                   properties:
+ *                     locked:
+ *                       type: boolean
+ *                       enum: [true]
+ *                     lockId:
+ *                       type: string
+ *                     lockedBy:
+ *                       type: string
+ *                     expiresAt:
+ *                       type: string
+ *                       format: date-time
+ *                     owner:
+ *                       type: boolean
+ *       404:
+ *         description: Model not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
  */
-locks.get('/:name/lock', requireAuth, async (req: Request, res: Response) => {
+locks.get('/:name/lock', async (req: Request, res: Response) => {
   const user = (req as AuthedRequest).user!;
   const { name } = req.params as { name: string };
 
