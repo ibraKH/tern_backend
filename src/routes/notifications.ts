@@ -11,6 +11,13 @@ type AuthedRequest = Request & {
 
 const notifications = express.Router();
 
+/**
+ * @openapi
+ * tags:
+ *   - name: Notifications
+ *     description: User notification endpoints — @mention alerts
+ */
+
 notifications.use(requireAuth);
 
 const markReadSchema = z.object({
@@ -18,8 +25,31 @@ const markReadSchema = z.object({
 });
 
 /**
- * GET /notifications/mentions
- * Returns unread @mention notifications for the authenticated user.
+ * @openapi
+ * /notifications/mentions:
+ *   get:
+ *     summary: Get unread @mention notifications for the authenticated user
+ *     tags: [Notifications]
+ *     security:
+ *       - BearerAuth: []
+ *     responses:
+ *       200:
+ *         description: List of pending mention notifications
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 mentions:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
  */
 notifications.get('/mentions', async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -31,9 +61,43 @@ notifications.get('/mentions', async (req: Request, res: Response, next: NextFun
 });
 
 /**
- * PATCH /notifications/mentions/read
- * Body: { ids: number[] } — marks those mentions as read (sets notified_at = NOW()).
- * Returns 204 No Content on success.
+ * @openapi
+ * /notifications/mentions/read:
+ *   patch:
+ *     summary: Mark @mention notifications as read
+ *     description: Sets `notified_at = NOW()` for the provided mention IDs. Returns 204 No Content on success.
+ *     tags: [Notifications]
+ *     security:
+ *       - BearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [ids]
+ *             properties:
+ *               ids:
+ *                 type: array
+ *                 minItems: 1
+ *                 items:
+ *                   type: integer
+ *                   minimum: 1
+ *     responses:
+ *       204:
+ *         description: Mentions marked as read — no content
+ *       400:
+ *         description: Missing or invalid ids array
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
  */
 notifications.patch(
   '/mentions/read',
