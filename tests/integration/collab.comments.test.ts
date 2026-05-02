@@ -43,6 +43,7 @@ import app from '../../src/app';
 import pool from '../../src/config/database';
 import { verifyToken } from '../../src/utils/jwt';
 import * as commentsService from '../../src/services/collab/comments.service';
+import { io } from '../../src/socket';
 
 const mockQuery = pool.query as jest.Mock;
 const mockVerify = verifyToken as jest.Mock;
@@ -65,7 +66,6 @@ function setupAuth(role: Role = 'Editor', userId = 1, email = 'user@test.com') {
 beforeEach(() => {
   jest.clearAllMocks();
   // Reset the io.to mock to return a fresh emit mock on each test
-  const { io } = require('../../src/socket');
   (io.to as jest.Mock).mockReturnValue({ emit: jest.fn() });
 });
 
