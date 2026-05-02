@@ -1,0 +1,21 @@
+{
+  "name": "TERN Local",
+  "values": [
+    { "key": "baseUrl", "value": "http://localhost:3000", "enabled": true },
+    { "key": "adminEmail", "value": "admin@example.com", "enabled": true },
+    { "key": "adminPassword", "value": "Password1!", "enabled": true },
+    { "key": "editorEmail", "value": "editor@example.com", "enabled": true },
+    { "key": "editorPassword", "value": "Password1!", "enabled": true },
+    { "key": "viewerEmail", "value": "viewer@example.com", "enabled": true },
+    { "key": "viewerPassword", "value": "Password1!", "enabled": true },
+    { "key": "accessToken", "value": "", "enabled": true },
+    { "key": "refreshToken", "value": "", "enabled": true },
+    { "key": "editorAccessToken", "value": "", "enabled": true },
+    { "key": "viewerAccessToken", "value": "", "enabled": true },
+    { "key": "testModelId", "value": "", "enabled": true },
+    { "key": "testModelName", "value": "Woodlands", "enabled": true },
+    { "key": "testUserId", "value": "", "enabled": true },
+    { "key": "testCommentId", "value": "", "enabled": true },
+    { "key": "testLockId", "value": "", "enabled": true }
+  ]
+}

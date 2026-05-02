@@ -17,7 +17,9 @@
     "migrate:status": "node-pg-migrate status -m migrations -f database.json --config-value dev --envPath .env",
     "migrate:up:prod": "node-pg-migrate up -m migrations -f database.json --config-value production",
     "lint": "eslint . --ext .js,.ts --cache",
-    "lint:fix": "eslint . --ext .js,.ts --fix --cache"
+    "lint:fix": "eslint . --ext .js,.ts --fix --cache",
+    "test:api": "newman run postman/TERN_API.collection.json -e postman/local.environment.json --reporters cli,junit --reporter-junit-export results/newman.xml",
+    "test:api:prod": "newman run postman/TERN_API.collection.json -e postman/production.environment.json --reporters cli,junit --reporter-junit-export results/newman.xml"
   },
   "keywords": [],
   "author": "",
