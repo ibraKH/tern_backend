@@ -69,14 +69,13 @@ describe("services/auth.service", () => {
       const user = await createUser({
         email: "t@e.com",
         password: "secret",
-        role: "Editor",
         name: "Test User",
       });
 
       expect(hash).toHaveBeenCalledWith("secret");
       expect(client.query).toHaveBeenCalledWith(
         expect.stringContaining("INSERT INTO auth_users"),
-        ["t@e.com", "h:secret", "Editor"]
+        ["t@e.com", "h:secret", "Viewer"]
       );
       expect(client.query).toHaveBeenCalledWith(
         expect.stringContaining("INSERT INTO contributors"),

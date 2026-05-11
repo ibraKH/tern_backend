@@ -20,7 +20,7 @@ const mockVerify = verifyToken as jest.Mock;
 
 // Resolves the auth middleware's SELECT query (always returns the requesting user).
 const authRow = (email: string, role: string) => ({
-  rows: [{ id: 1, email, role, contributor_id: null }],
+  rows: [{ id: 1, email, role, contributor_id: null, is_verified: true }],
 });
 
 beforeEach(() => jest.clearAllMocks());
@@ -31,6 +31,9 @@ describe('GET /models/:name/permissions', () => {
   it('returns 403 for non-Admin users', async () => {
     mockVerify.mockReturnValue({ uid: 2, email: 'editor@x.com', role: 'Editor' });
     mockQuery.mockResolvedValueOnce(authRow('editor@x.com', 'Editor'));
+    // requireModelOwnerOrAdmin → getModelRole: model_permissions (not found) + is_template (not found) → null → 403
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    mockQuery.mockResolvedValueOnce({ rows: [] });
 
     const res = await request(app)
       .get('/models/ModelA/permissions')
@@ -78,6 +81,9 @@ describe('PUT /models/:name/permissions/:email', () => {
   it('returns 403 for non-Admin users', async () => {
     mockVerify.mockReturnValue({ uid: 2, email: 'editor@x.com', role: 'Editor' });
     mockQuery.mockResolvedValueOnce(authRow('editor@x.com', 'Editor'));
+    // requireModelOwnerOrAdmin → getModelRole: model_permissions + is_template → null → 403
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    mockQuery.mockResolvedValueOnce({ rows: [] });
 
     const res = await request(app)
       .put('/models/ModelA/permissions/user@x.com')
@@ -109,6 +115,9 @@ describe('DELETE /models/:name/permissions/:email', () => {
   it('returns 403 for non-Admin users', async () => {
     mockVerify.mockReturnValue({ uid: 2, email: 'editor@x.com', role: 'Editor' });
     mockQuery.mockResolvedValueOnce(authRow('editor@x.com', 'Editor'));
+    // requireModelOwnerOrAdmin → getModelRole: model_permissions + is_template → null → 403
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    mockQuery.mockResolvedValueOnce({ rows: [] });
 
     const res = await request(app)
       .delete('/models/ModelA/permissions/user@x.com')
@@ -155,8 +164,11 @@ describe('GET /models/:name — per-model enforcement', () => {
   it('blocks a user with no model_permissions record', async () => {
     mockVerify.mockReturnValue({ uid: 4, email: 'nobody@x.com', role: 'Editor' });
     mockQuery.mockResolvedValueOnce(authRow('nobody@x.com', 'Editor'));
-    // requireModelRole → getModelRole returns null (no record)
+    // getModelRole: model_permissions (not found) → is_template (not found) → null
     mockQuery.mockResolvedValueOnce({ rows: [] });
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    // requireModelRole: model exists check (exists → 403 "You do not have access")
+    mockQuery.mockResolvedValueOnce({ rows: [{ id: 1 }] });
 
     const res = await request(app)
       .get('/models/ModelA')

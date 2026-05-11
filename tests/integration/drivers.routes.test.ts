@@ -18,7 +18,7 @@ const mockQuery = pool.query as jest.Mock;
 const mockVerify = verifyToken as jest.Mock;
 
 // Auth user returned by the auth middleware DB lookup
-const AUTH_USER = { id: 1, email: 'editor@test.com', role: 'Editor', contributor_id: null };
+const AUTH_USER = { id: 1, email: 'editor@test.com', role: 'Editor', contributor_id: null, is_verified: true };
 
 /**
  * Build a query mock that dispatches on SQL content.

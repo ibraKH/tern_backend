@@ -27,7 +27,7 @@ type Role = 'Admin' | 'Editor' | 'Viewer';
 function setupAuth(role: Role = 'Editor', userId = 1, email = 'user@test.com') {
   mockVerify.mockReturnValue({ uid: userId, email, role });
   mockQuery.mockResolvedValueOnce({
-    rows: [{ id: userId, email, role, contributor_id: null }],
+    rows: [{ id: userId, email, role, contributor_id: null, is_verified: true }],
   });
 }
 
@@ -59,6 +59,8 @@ describe('POST /models/:name/lock/acquire', () => {
 
   it('returns 403 when model is review-locked', async () => {
     setupAuth('Editor', 1, 'user@test.com');
+    // requireModelRole → getModelRole: model_permissions → editor role found
+    mockQuery.mockResolvedValueOnce({ rows: [{ role: 'editor' }] });
     mockReviewLockLocked();
 
     const res = await request(app)
@@ -71,6 +73,8 @@ describe('POST /models/:name/lock/acquire', () => {
 
   it('returns 404 when model not found', async () => {
     setupAuth('Editor', 1, 'user@test.com');
+    // requireModelRole → getModelRole: model_permissions → editor role found
+    mockQuery.mockResolvedValueOnce({ rows: [{ role: 'editor' }] });
     mockReviewLockNotLocked();
     // model lookup: not found
     mockQuery.mockResolvedValueOnce({ rows: [] });
@@ -85,9 +89,14 @@ describe('POST /models/:name/lock/acquire', () => {
 
   it('happy path: acquires new lock (success:true, owner:true)', async () => {
     setupAuth('Editor', 1, 'user@test.com');
+    // requireModelRole → getModelRole: model_permissions → editor role found
+    mockQuery.mockResolvedValueOnce({ rows: [{ role: 'editor' }] });
     mockReviewLockNotLocked();
     // model lookup
     mockQuery.mockResolvedValueOnce({ rows: [{ id: 42 }] });
+    // lock_type determination: getModelRole → model_permissions (empty) + is_template (empty) → null → 'edit'
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    mockQuery.mockResolvedValueOnce({ rows: [] });
     // existing lock check: no existing lock
     mockQuery.mockResolvedValueOnce({ rows: [] });
     // INSERT returning new lock
@@ -108,9 +117,14 @@ describe('POST /models/:name/lock/acquire', () => {
 
   it('returns success:false locked:true owner:false when lock held by another user (not expired)', async () => {
     setupAuth('Editor', 1, 'user@test.com');
+    // requireModelRole → getModelRole: model_permissions → editor role found
+    mockQuery.mockResolvedValueOnce({ rows: [{ role: 'editor' }] });
     mockReviewLockNotLocked();
     // model lookup
     mockQuery.mockResolvedValueOnce({ rows: [{ id: 42 }] });
+    // lock_type determination: getModelRole → model_permissions (empty) + is_template (empty) → null → 'edit'
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    mockQuery.mockResolvedValueOnce({ rows: [] });
     // existing lock held by user_id=2 (not expired)
     const futureExpiry = new Date(Date.now() + 60_000).toISOString();
     mockQuery.mockResolvedValueOnce({

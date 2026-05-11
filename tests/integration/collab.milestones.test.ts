@@ -56,7 +56,7 @@ function setupAuth(role: Role) {
   const uid = role === 'Admin' ? 1 : role === 'Editor' ? 2 : 3;
   mockVerifyToken.mockReturnValue({ uid, email: `${role.toLowerCase()}@t.com`, role });
   mockQuery.mockResolvedValueOnce({
-    rows: [{ id: uid, email: `${role.toLowerCase()}@t.com`, role, contributor_id: null }],
+    rows: [{ id: uid, email: `${role.toLowerCase()}@t.com`, role, contributor_id: null, is_verified: true }],
   });
 }
 
@@ -74,6 +74,7 @@ const SAMPLE_MILESTONE_WITH_SNAPSHOT = {
 };
 
 beforeEach(() => {
+  jest.clearAllMocks();
   const mockEmit = jest.fn();
   mockIoTo.mockReturnValue({ emit: mockEmit });
   mockSaveModel.mockResolvedValue(undefined);
@@ -89,6 +90,8 @@ describe('GET /collab/:modelName/milestones — list (#46)', () => {
 
   it('returns 200 with milestones array for any authenticated role', async () => {
     setupAuth('Viewer');
+    // requireModelRole[ALL] → getModelRole → viewer role found → passes
+    mockQuery.mockResolvedValueOnce({ rows: [{ role: 'viewer' }] });
     mockListMilestones.mockResolvedValueOnce([SAMPLE_MILESTONE]);
 
     const res = await request(app)
@@ -102,6 +105,8 @@ describe('GET /collab/:modelName/milestones — list (#46)', () => {
 
   it('never returns snapshot_data in the list response', async () => {
     setupAuth('Editor');
+    // requireModelRole[ALL] → getModelRole → editor role found → passes
+    mockQuery.mockResolvedValueOnce({ rows: [{ role: 'editor' }] });
     mockListMilestones.mockResolvedValueOnce([SAMPLE_MILESTONE]);
 
     const res = await request(app)
@@ -123,6 +128,8 @@ describe('POST /collab/:modelName/milestones — create (#46 + #47)', () => {
 
   it('returns 403 when Viewer tries to create a milestone', async () => {
     setupAuth('Viewer');
+    // requireModelRole[OWNER, EDITOR] → getModelRole returns viewer → effectiveRole = viewer → 403
+    mockQuery.mockResolvedValueOnce({ rows: [{ role: 'viewer' }] });
 
     const res = await request(app)
       .post(`/collab/${MODEL}/milestones`)
@@ -146,6 +153,8 @@ describe('POST /collab/:modelName/milestones — create (#46 + #47)', () => {
 
   it('returns 400 when label exceeds 100 characters', async () => {
     setupAuth('Editor');
+    // requireModelRole[OWNER, EDITOR] → getModelRole → editor role found → passes
+    mockQuery.mockResolvedValueOnce({ rows: [{ role: 'editor' }] });
 
     const res = await request(app)
       .post(`/collab/${MODEL}/milestones`)
@@ -171,6 +180,8 @@ describe('POST /collab/:modelName/milestones — create (#46 + #47)', () => {
 
   it('returns 201 for Editor role', async () => {
     setupAuth('Editor');
+    // requireModelRole[OWNER, EDITOR] → getModelRole → editor role found → passes
+    mockQuery.mockResolvedValueOnce({ rows: [{ role: 'editor' }] });
     mockCreateMilestone.mockResolvedValueOnce(SAMPLE_MILESTONE);
 
     const res = await request(app)
@@ -206,6 +217,8 @@ describe('GET /collab/:modelName/milestones/:id — single (#46)', () => {
 
   it('returns 200 with full snapshot for Viewer', async () => {
     setupAuth('Viewer');
+    // requireModelRole[ALL] → getModelRole → viewer role found → passes
+    mockQuery.mockResolvedValueOnce({ rows: [{ role: 'viewer' }] });
     mockGetMilestone.mockResolvedValueOnce(SAMPLE_MILESTONE_WITH_SNAPSHOT);
 
     const res = await request(app)
@@ -289,6 +302,8 @@ describe('POST /collab/:modelName/milestones/:id/restore — restore (#47)', () 
 
   it('returns 403 for Viewer role', async () => {
     setupAuth('Viewer');
+    // requireModelRole[OWNER, EDITOR] → getModelRole returns viewer → 403
+    mockQuery.mockResolvedValueOnce({ rows: [{ role: 'viewer' }] });
 
     const res = await request(app)
       .post(`/collab/${MODEL}/milestones/1/restore`)
@@ -323,6 +338,8 @@ describe('POST /collab/:modelName/milestones/:id/restore — restore (#47)', () 
 
   it('broadcasts model:restored socket event to the room', async () => {
     setupAuth('Editor');
+    // requireModelRole[OWNER, EDITOR] → getModelRole → editor role found → passes
+    mockQuery.mockResolvedValueOnce({ rows: [{ role: 'editor' }] });
     mockGetMilestone.mockResolvedValueOnce(SAMPLE_MILESTONE_WITH_SNAPSHOT);
 
     const mockEmit = jest.fn();
@@ -341,6 +358,8 @@ describe('POST /collab/:modelName/milestones/:id/restore — restore (#47)', () 
 
   it('Editor role can also restore (only Viewer is blocked)', async () => {
     setupAuth('Editor');
+    // requireModelRole[OWNER, EDITOR] → getModelRole → editor role found → passes
+    mockQuery.mockResolvedValueOnce({ rows: [{ role: 'editor' }] });
     mockGetMilestone.mockResolvedValueOnce(SAMPLE_MILESTONE_WITH_SNAPSHOT);
 
     const res = await request(app)

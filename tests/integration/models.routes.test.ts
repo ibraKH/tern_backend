@@ -34,7 +34,7 @@ describe('health and templates of models router', () => {
 
     (pool.query as jest.Mock).mockResolvedValue({
       rows: [
-        { id: 1, email: 'admin@admin.com', role: 'Editor', contributor_id: 1 },
+        { id: 1, email: 'admin@admin.com', role: 'Editor', contributor_id: 1, is_verified: true },
       ],
     });
 
@@ -68,38 +68,7 @@ describe('health and templates of models router', () => {
     );
   });
 
-  it('PATCH /models/:name/template returns 403 when user is not admin or owner', async () => {
-    mockClient.query.mockResolvedValueOnce({ rows: [] });
-
-    const res = await request(app)
-      .patch('/models/my-template/template')
-      .send({ flag: true })
-      .set('Authorization', 'Bearer any-token');
-
-    expect(res.status).toBe(403);
-    expect(res.body).toEqual({ message: 'Admin or owner required to update template flag' });
-    expect(mockClient.query).toHaveBeenCalledWith(
-      expect.stringContaining('SELECT c.id, LOWER(c.email) AS email'),
-      ['my-template']
-    );
-  });
-
-  it('PATCH /models/:name/template — Admin user succeeds (returns 200 { success: true })', async () => {
-    (pool.query as jest.Mock).mockResolvedValueOnce({
-      rows: [{ id: 1, email: 'admin@admin.com', role: 'Admin', contributor_id: 1 }],
-    });
-
-    mockClient.query
-      .mockResolvedValueOnce({ rows: [{ id: 1 }] }); // UPDATE stmmodel SET is_template
-
-    const res = await request(app)
-      .patch('/models/my-template/template')
-      .send({ flag: true })
-      .set('Authorization', 'Bearer any-token');
-
-    expect(res.status).toBe(200);
-    expect(res.body).toEqual({ success: true });
-  });
+  // PATCH /models/:name/template was removed in TASK-09 (flagAsTemplate deleted).
 
   it('POST /models/from-template/:name returns 404 when the template name does not exist', async () => {
     mockClient.query
@@ -153,6 +122,7 @@ describe('health and templates of models router', () => {
       .mockResolvedValueOnce({ rows: [] }) // model_contributions insert
       .mockResolvedValueOnce({ rows: [] }) // states SELECT
       .mockResolvedValueOnce({ rows: [] }) // transitions SELECT
+      .mockResolvedValueOnce({ rows: [] }) // INSERT owner into model_permissions (TASK-06)
       .mockResolvedValueOnce({ rows: [] }); // COMMIT
 
     const res = await request(app)
@@ -195,7 +165,7 @@ describe('review lock routes and save enforcement', () => {
       const text = String(sql);
       if (text.includes('FROM auth_users') && text.includes('WHERE id = $1')) {
         const user = Object.values(users).find((entry) => entry.uid === params?.[0]);
-        return { rows: user ? [{ id: user.uid, email: user.email, role: user.role, contributor_id: user.contributor_id }] : [] };
+        return { rows: user ? [{ id: user.uid, email: user.email, role: user.role, contributor_id: user.contributor_id, is_verified: true }] : [] };
       }
       if (text.includes('SELECT stm_name, is_locked, locked_by, locked_at, lock_reason') && text.includes('WHERE stm_name = $1')) {
         return { rows: [{ stm_name: MODEL_NAME, ...lockState }] };

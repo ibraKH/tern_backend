@@ -52,6 +52,10 @@ describe('requireModelRole', () => {
 
   it('returns 403 when the user has no model_permissions record', async () => {
     mockGetModelRole.mockResolvedValueOnce(null);
+    // requireModelRole checks if model exists: model DOES exist → 403 "no access" (not bootstrap)
+    const { default: pool } = await import('../../../src/config/database');
+    (pool.query as jest.Mock).mockResolvedValueOnce({ rows: [{ id: 1 }] });
+
     const req = {
       params: { name: 'ModelA' },
       body: {},

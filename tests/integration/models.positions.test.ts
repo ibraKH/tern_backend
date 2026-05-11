@@ -161,7 +161,7 @@ jest.mock('../../src/config/database', () => {
       const text = String(sql);
       // Auth middleware lookup
       if (text.includes('FROM auth_users') && text.includes('WHERE id = $1')) {
-        return { rows: [{ id: 1, email: 'admin@admin.com', role: 'Editor', contributor_id: null }] };
+        return { rows: [{ id: 1, email: 'admin@admin.com', role: 'Editor', contributor_id: null, is_verified: true }] };
       }
       // Per-model permission check — grant editor access for test user
       if (text.includes('FROM model_permissions')) {

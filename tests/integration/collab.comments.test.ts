@@ -16,7 +16,7 @@ jest.mock('../../src/services/collab/activity.service', () => ({
 }));
 
 jest.mock('../../src/services/collab/comments.service', () => ({
-  getComments: jest.fn().mockResolvedValue([]),
+  getComments: jest.fn().mockResolvedValue({ comments: [], total: 0, limit: 50, offset: 0 }),
   createComment: jest.fn(),
   resolveComment: jest.fn(),
   deleteComment: jest.fn(),
@@ -59,7 +59,7 @@ type Role = 'Admin' | 'Editor' | 'Viewer';
 function setupAuth(role: Role = 'Editor', userId = 1, email = 'user@test.com') {
   mockVerify.mockReturnValue({ uid: userId, email, role });
   mockQuery.mockResolvedValueOnce({
-    rows: [{ id: userId, email, role, contributor_id: null }],
+    rows: [{ id: userId, email, role, contributor_id: null, is_verified: true }],
   });
 }
 
@@ -79,6 +79,8 @@ describe('GET /collab/:modelName/activity', () => {
 
   it('returns 200 with {entries:[]} when authenticated', async () => {
     setupAuth('Editor');
+    // requireModelRole[ALL] → getModelRole → editor role found → passes
+    mockQuery.mockResolvedValueOnce({ rows: [{ role: 'editor' }] });
 
     const res = await request(app)
       .get(`/collab/${MODEL}/activity`)
@@ -99,13 +101,15 @@ describe('GET /collab/:modelName/comments', () => {
 
   it('returns 200 with {comments:[]} when authenticated', async () => {
     setupAuth('Editor');
+    // requireModelRole[ALL] → getModelRole → editor role found → passes
+    mockQuery.mockResolvedValueOnce({ rows: [{ role: 'editor' }] });
 
     const res = await request(app)
       .get(`/collab/${MODEL}/comments`)
       .set('Authorization', 'Bearer tok');
 
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ comments: [] });
+    expect(res.body).toMatchObject({ comments: [] });
   });
 });
 
@@ -121,6 +125,8 @@ describe('POST /collab/:modelName/comments', () => {
 
   it('returns 400 when body is missing', async () => {
     setupAuth('Editor');
+    // requireModelRole[OWNER, EDITOR, REVIEWER] → getModelRole → editor found → passes
+    mockQuery.mockResolvedValueOnce({ rows: [{ role: 'editor' }] });
 
     const res = await request(app)
       .post(`/collab/${MODEL}/comments`)
@@ -133,6 +139,8 @@ describe('POST /collab/:modelName/comments', () => {
 
   it('returns 400 when body is too long (> 2000 chars)', async () => {
     setupAuth('Editor');
+    // requireModelRole[OWNER, EDITOR, REVIEWER] → getModelRole → editor found → passes
+    mockQuery.mockResolvedValueOnce({ rows: [{ role: 'editor' }] });
 
     const res = await request(app)
       .post(`/collab/${MODEL}/comments`)
@@ -145,6 +153,8 @@ describe('POST /collab/:modelName/comments', () => {
 
   it('returns 400 when entityType is invalid', async () => {
     setupAuth('Editor');
+    // requireModelRole[OWNER, EDITOR, REVIEWER] → getModelRole → editor found → passes
+    mockQuery.mockResolvedValueOnce({ rows: [{ role: 'editor' }] });
 
     const res = await request(app)
       .post(`/collab/${MODEL}/comments`)
@@ -157,6 +167,8 @@ describe('POST /collab/:modelName/comments', () => {
 
   it('returns 201 with created comment on happy path', async () => {
     setupAuth('Editor', 1, 'user@test.com');
+    // requireModelRole[OWNER, EDITOR, REVIEWER] → getModelRole → editor found → passes
+    mockQuery.mockResolvedValueOnce({ rows: [{ role: 'editor' }] });
 
     const fakeComment = {
       id: 10,
@@ -191,6 +203,8 @@ describe('PATCH /collab/:modelName/comments/:id/resolve', () => {
 
   it('returns 200 success:true on happy path', async () => {
     setupAuth('Editor', 1, 'user@test.com');
+    // requireModelRole[OWNER, EDITOR, REVIEWER] → getModelRole → editor found → passes
+    mockQuery.mockResolvedValueOnce({ rows: [{ role: 'editor' }] });
     mockResolveComment.mockResolvedValueOnce(undefined);
 
     const res = await request(app)
@@ -203,6 +217,8 @@ describe('PATCH /collab/:modelName/comments/:id/resolve', () => {
 
   it('returns 403 when service throws {status:403}', async () => {
     setupAuth('Viewer', 3, 'viewer@test.com');
+    // requireModelRole[OWNER, EDITOR, REVIEWER] → getModelRole returns viewer → 403
+    mockQuery.mockResolvedValueOnce({ rows: [{ role: 'viewer' }] });
     mockResolveComment.mockRejectedValueOnce({ status: 403, message: 'Forbidden' });
 
     const res = await request(app)
@@ -223,6 +239,8 @@ describe('DELETE /collab/:modelName/comments/:id', () => {
 
   it('returns 200 success:true on happy path', async () => {
     setupAuth('Editor', 1, 'user@test.com');
+    // requireModelRole[OWNER, EDITOR, REVIEWER] → getModelRole → editor found → passes
+    mockQuery.mockResolvedValueOnce({ rows: [{ role: 'editor' }] });
     mockDeleteComment.mockResolvedValueOnce(undefined);
 
     const res = await request(app)
@@ -235,6 +253,8 @@ describe('DELETE /collab/:modelName/comments/:id', () => {
 
   it('returns 403 when service throws {status:403}', async () => {
     setupAuth('Viewer', 3, 'viewer@test.com');
+    // requireModelRole[OWNER, EDITOR, REVIEWER] → getModelRole returns viewer → 403
+    mockQuery.mockResolvedValueOnce({ rows: [{ role: 'viewer' }] });
     mockDeleteComment.mockRejectedValueOnce({ status: 403, message: 'Forbidden' });
 
     const res = await request(app)

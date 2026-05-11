@@ -9,6 +9,7 @@ jest.mock("../../src/middlewares/rateLimit", () => ({
   limitSignup:              (_req: unknown, _res: unknown, next: () => void) => next(),
   limitLogin:               (_req: unknown, _res: unknown, next: () => void) => next(),
   limitResendVerification:  (_req: unknown, _res: unknown, next: () => void) => next(),
+  limitVerification:        (_req: unknown, _res: unknown, next: () => void) => next(),
   limitModelsRead:          (_req: unknown, _res: unknown, next: () => void) => next(),
   limitModelsWrite:         (_req: unknown, _res: unknown, next: () => void) => next(),
   limitDriversRead:         (_req: unknown, _res: unknown, next: () => void) => next(),

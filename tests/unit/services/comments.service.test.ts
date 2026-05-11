@@ -65,9 +65,10 @@ describe('comments.service', () => {
   });
 
   describe('getComments', () => {
-    it('returns comments for a model', async () => {
+    it('returns paginated comments for a model', async () => {
       mockQuery
-        .mockResolvedValueOnce({ rows: [{ id: 10 }] })
+        .mockResolvedValueOnce({ rows: [{ id: 10 }] })              // model lookup
+        .mockResolvedValueOnce({ rows: [{ count: '1' }] })           // COUNT query
         .mockResolvedValueOnce({
           rows: [{
             id: 1, entity_type: 'node', entity_id: 5, parent_id: null,
@@ -76,15 +77,17 @@ describe('comments.service', () => {
           }],
         });
 
-      const comments = await getComments('M1');
-      expect(comments).toHaveLength(1);
-      expect(comments[0]).toMatchObject({ body: 'hello', author: { email: 'a@b.com' } });
+      const result = await getComments('M1');
+      expect(result.comments).toHaveLength(1);
+      expect(result.total).toBe(1);
+      expect(result.comments[0]).toMatchObject({ body: 'hello', author: { email: 'a@b.com' } });
     });
 
-    it('returns empty when model not found', async () => {
+    it('returns empty paginated result when model not found', async () => {
       mockQuery.mockResolvedValueOnce({ rows: [] });
-      const comments = await getComments('X');
-      expect(comments).toEqual([]);
+      const result = await getComments('X');
+      expect(result.comments).toEqual([]);
+      expect(result.total).toBe(0);
     });
   });
 

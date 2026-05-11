@@ -12,6 +12,7 @@ jest.mock('../../src/middlewares/rateLimit', () => ({
   limitSignup:             (_req: unknown, _res: unknown, next: () => void) => next(),
   limitLogin:              (_req: unknown, _res: unknown, next: () => void) => next(),
   limitResendVerification: (_req: unknown, _res: unknown, next: () => void) => next(),
+  limitVerification:       (_req: unknown, _res: unknown, next: () => void) => next(),
   limitModelsRead:         (_req: unknown, _res: unknown, next: () => void) => next(),
   limitModelsWrite:        (_req: unknown, _res: unknown, next: () => void) => next(),
   limitDriversRead:        (_req: unknown, _res: unknown, next: () => void) => next(),
@@ -32,8 +33,8 @@ const mockVerifyToken = verifyToken as jest.Mock;
 const ADMIN_TOKEN = 'Bearer admin-token';
 const EDITOR_TOKEN = 'Bearer editor-token';
 
-const adminRow = { id: 1, email: 'admin@example.com', role: 'Admin', contributor_id: null };
-const editorRow = { id: 2, email: 'editor@example.com', role: 'Editor', contributor_id: null };
+const adminRow = { id: 1, email: 'admin@example.com', role: 'Admin', contributor_id: null, is_verified: true };
+const editorRow = { id: 2, email: 'editor@example.com', role: 'Editor', contributor_id: null, is_verified: true };
 
 function mockAdminAuth() {
   mockVerifyToken.mockReturnValue({ uid: 1, email: adminRow.email, role: 'Admin' });
@@ -159,6 +160,7 @@ describe('PATCH /api/admin/users/:id/role', () => {
   it('updates a user role and writes an audit entry', async () => {
     mockAdminAuth();
     mockQuery
+      .mockResolvedValueOnce({ rows: [{ count: '2' }] })  // last-admin guard: COUNT(*) — 2 admins, guard passes
       .mockResolvedValueOnce({ rowCount: 1, rows: [{ id: 5, email: 'target@example.com', role: 'Editor' }] })
       .mockResolvedValueOnce({ rows: [] }); // logAction INSERT
 
@@ -174,7 +176,9 @@ describe('PATCH /api/admin/users/:id/role', () => {
 
   it('returns 404 when target user does not exist', async () => {
     mockAdminAuth();
-    mockQuery.mockResolvedValueOnce({ rowCount: 0, rows: [] });
+    mockQuery
+      .mockResolvedValueOnce({ rows: [{ count: '2' }] })  // last-admin guard: COUNT(*) — 2 admins, guard passes
+      .mockResolvedValueOnce({ rowCount: 0, rows: [] });   // UPDATE — no user found
 
     const res = await request(app)
       .patch('/api/admin/users/999/role')

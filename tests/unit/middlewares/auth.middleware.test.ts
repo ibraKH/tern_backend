@@ -36,7 +36,7 @@ describe("middlewares/requireAuth", () => {
   it("calls next() when token is valid", async () => {
     (verifyToken as jest.Mock).mockReturnValue({ uid: 1, email: "a@b.com" });
     (pool.query as jest.Mock).mockResolvedValue({
-      rows: [{ id: 1, email: "a@b.com", role: "Editor", contributor_id: null }],
+      rows: [{ id: 1, email: "a@b.com", role: "Editor", contributor_id: null, is_verified: true }],
     });
 
   const req: BasicRequest = { header: () => "Bearer valid.jwt.token" };
