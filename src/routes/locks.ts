@@ -3,6 +3,9 @@ import type { Request, Response } from 'express';
 
 import pool from '../config/database';
 import { getModelLockStatus } from '../services/models/reviewLock.service';
+import { getModelRole } from '../services/permissions/model-permissions.service';
+import { requireModelRole } from '../middlewares/model-permission.middleware';
+import { MODEL_ROLES, GLOBAL_ROLES } from '../constants/roles';
 
 type AuthedRequest = Request & { user?: { id: number; email: string; role: string } };
 
@@ -23,8 +26,8 @@ const locks = express.Router();
  *   post:
  *     summary: Acquire or refresh an exclusive editing lock on a model
  *     description: >
- *       Returns `{success: true}` when the lock is granted or refreshed (same user).
- *       Returns `{success: false, locked: true, ...}` when the lock is held by another user.
+ *       Only users with owner, editor, or reviewer model role can acquire locks.
+ *       Viewers cannot acquire locks. lock_type is 'review' for reviewers, 'edit' otherwise.
  *     tags: [Locks]
  *     security:
  *       - BearerAuth: []
@@ -32,128 +35,112 @@ const locks = express.Router();
  *       - in: path
  *         name: name
  *         required: true
- *         description: STM model name
- *         schema:
- *           type: string
+ *         schema: { type: string }
  *     responses:
  *       200:
  *         description: Lock acquired, refreshed, or already held by another user
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                 locked:
- *                   type: boolean
- *                 lockId:
- *                   type: string
- *                 lockedBy:
- *                   type: string
- *                 owner:
- *                   type: boolean
- *                 expiresAt:
- *                   type: string
- *                   format: date-time
  *       403:
- *         description: Model is locked for review
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
+ *         description: Model is locked for review, or Viewer role
  *       404:
  *         description: Model not found
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
  *       500:
  *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
  */
-locks.post('/:name/lock/acquire', async (req: Request, res: Response) => {
-  const user = (req as AuthedRequest).user!;
-  const { name } = req.params as { name: string };
+locks.post(
+  '/:name/lock/acquire',
+  requireModelRole([MODEL_ROLES.OWNER, MODEL_ROLES.EDITOR, MODEL_ROLES.REVIEWER]),
+  async (req: Request, res: Response) => {
+    const user = (req as AuthedRequest).user!;
+    const { name } = req.params as { name: string };
 
-  try {
-    const reviewLock = await getModelLockStatus(name);
-    if (reviewLock?.is_locked) {
-      return res.status(403).json({ error: 'Model is locked for review', ...reviewLock });
-    }
+    try {
+      const reviewLock = await getModelLockStatus(name);
+      if (reviewLock?.is_locked) {
+        return res.status(403).json({ error: 'Model is locked for review', ...reviewLock });
+      }
 
-    const modelRes = await pool.query<{ id: number }>('SELECT id FROM stmmodel WHERE stm_name = $1', [name]);
-    if (modelRes.rows.length === 0) return res.status(404).json({ error: 'Model not found' });
-    const modelId = modelRes.rows[0].id;
+      const modelRes = await pool.query<{ id: number }>('SELECT id FROM stmmodel WHERE stm_name = $1', [name]);
+      if (modelRes.rows.length === 0) return res.status(404).json({ error: 'Model not found' });
+      const modelId = modelRes.rows[0].id;
 
-    // Check existing model-level lock (entity_type = 'model', entity_id = model_id).
-    const existing = await pool.query<{ id: number; user_id: number; expires_at: string; email: string }>(
-      `SELECT cl.id, cl.user_id, cl.expires_at, au.email
-       FROM collab_locks cl JOIN auth_users au ON au.id = cl.user_id
-       WHERE cl.model_id = $1 AND cl.entity_type = 'model' AND cl.entity_id = $2`,
-      [modelId, modelId]
-    );
+      // Determine lock_type from the user's model role.
+      // Admins default to 'edit'; reviewers get 'review'; owners/editors get 'edit'.
+      let lockType: 'edit' | 'review' = 'edit';
+      if (user.role !== GLOBAL_ROLES.ADMIN) {
+        const modelRole = await getModelRole(name, user.email);
+        if (modelRole === MODEL_ROLES.REVIEWER) {
+          lockType = 'review';
+        }
+      }
 
-    if (existing.rows.length > 0) {
-      const lock = existing.rows[0];
-      const expired = new Date(lock.expires_at) <= new Date();
+      const existing = await pool.query<{
+        id: number; user_id: number; expires_at: string; email: string; lock_type: string;
+      }>(
+        `SELECT cl.id, cl.user_id, cl.expires_at, au.email, cl.lock_type
+         FROM collab_locks cl JOIN auth_users au ON au.id = cl.user_id
+         WHERE cl.model_id = $1 AND cl.entity_type = 'model' AND cl.entity_id = $2`,
+        [modelId, modelId]
+      );
 
-      if (lock.user_id === user.id) {
-        // Same user — refresh.
+      if (existing.rows.length > 0) {
+        const lock = existing.rows[0];
+        const expired = new Date(lock.expires_at) <= new Date();
+
+        if (lock.user_id === user.id) {
+          await pool.query(
+            `UPDATE collab_locks SET expires_at = NOW() + INTERVAL '${LOCK_TTL_SECONDS} seconds', locked_at = NOW(), lock_type = $1
+             WHERE id = $2`,
+            [lockType, lock.id]
+          );
+          return res.json({
+            success: true, locked: true,
+            lockId: String(lock.id), lockedBy: user.email, owner: true,
+            lock_type: lockType,
+            expiresAt: new Date(Date.now() + LOCK_TTL_SECONDS * 1000).toISOString(),
+          });
+        }
+
+        if (!expired) {
+          return res.json({
+            success: false, locked: true,
+            lockId: String(lock.id), lockedBy: lock.email, owner: false,
+            lock_type: lock.lock_type,
+            expiresAt: lock.expires_at,
+          });
+        }
+
         await pool.query(
-          `UPDATE collab_locks SET expires_at = NOW() + INTERVAL '${LOCK_TTL_SECONDS} seconds', locked_at = NOW()
-           WHERE id = $1`,
-          [lock.id]
+          `UPDATE collab_locks SET user_id = $1, locked_at = NOW(), expires_at = NOW() + INTERVAL '${LOCK_TTL_SECONDS} seconds', lock_type = $2
+           WHERE id = $3`,
+          [user.id, lockType, lock.id]
         );
         return res.json({
           success: true, locked: true,
           lockId: String(lock.id), lockedBy: user.email, owner: true,
+          lock_type: lockType,
           expiresAt: new Date(Date.now() + LOCK_TTL_SECONDS * 1000).toISOString(),
         });
       }
 
-      if (!expired) {
-        return res.json({
-          success: false, locked: true,
-          lockId: String(lock.id), lockedBy: lock.email, owner: false,
-          expiresAt: lock.expires_at,
-        });
-      }
-
-      // Expired — take it over.
-      await pool.query(
-        `UPDATE collab_locks SET user_id = $1, locked_at = NOW(), expires_at = NOW() + INTERVAL '${LOCK_TTL_SECONDS} seconds'
-         WHERE id = $2`,
-        [user.id, lock.id]
+      const insertRes = await pool.query<{ id: number; expires_at: string }>(
+        `INSERT INTO collab_locks (model_id, user_id, entity_type, entity_id, expires_at, lock_type)
+         VALUES ($1, $2, 'model', $3, NOW() + INTERVAL '${LOCK_TTL_SECONDS} seconds', $4)
+         RETURNING id, expires_at`,
+        [modelId, user.id, modelId, lockType]
       );
+
       return res.json({
         success: true, locked: true,
-        lockId: String(lock.id), lockedBy: user.email, owner: true,
-        expiresAt: new Date(Date.now() + LOCK_TTL_SECONDS * 1000).toISOString(),
+        lockId: String(insertRes.rows[0].id), lockedBy: user.email, owner: true,
+        lock_type: lockType,
+        expiresAt: insertRes.rows[0].expires_at,
       });
+    } catch (err) {
+      console.error('[locks] acquire failed:', err);
+      return res.status(500).json({ error: 'Failed to acquire lock' });
     }
-
-    // No lock — insert.
-    const insertRes = await pool.query<{ id: number; expires_at: string }>(
-      `INSERT INTO collab_locks (model_id, user_id, entity_type, entity_id, expires_at)
-       VALUES ($1, $2, 'model', $3, NOW() + INTERVAL '${LOCK_TTL_SECONDS} seconds')
-       RETURNING id, expires_at`,
-      [modelId, user.id, modelId]
-    );
-
-    return res.json({
-      success: true, locked: true,
-      lockId: String(insertRes.rows[0].id), lockedBy: user.email, owner: true,
-      expiresAt: insertRes.rows[0].expires_at,
-    });
-  } catch (err) {
-    console.error('[locks] acquire failed:', err);
-    return res.status(500).json({ error: 'Failed to acquire lock' });
-  }
-});
+  },
+);
 
 /**
  * @openapi
@@ -167,9 +154,7 @@ locks.post('/:name/lock/acquire', async (req: Request, res: Response) => {
  *       - in: path
  *         name: name
  *         required: true
- *         description: STM model name
- *         schema:
- *           type: string
+ *         schema: { type: string }
  *     requestBody:
  *       required: true
  *       content:
@@ -178,53 +163,18 @@ locks.post('/:name/lock/acquire', async (req: Request, res: Response) => {
  *             type: object
  *             required: [lockId]
  *             properties:
- *               lockId:
- *                 type: string
+ *               lockId: { type: string }
  *     responses:
  *       200:
  *         description: Lock renewed
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                 locked:
- *                   type: boolean
- *                 lockId:
- *                   type: string
- *                 lockedBy:
- *                   type: string
- *                 owner:
- *                   type: boolean
- *                 expiresAt:
- *                   type: string
- *                   format: date-time
  *       400:
  *         description: Missing lockId
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
  *       403:
  *         description: Model is locked for review
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
  *       404:
  *         description: Lock not found or not owned by caller
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
  *       500:
  *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
  */
 locks.post('/:name/lock/renew', async (req: Request, res: Response) => {
   const user = (req as AuthedRequest).user!;
@@ -270,9 +220,7 @@ locks.post('/:name/lock/renew', async (req: Request, res: Response) => {
  *       - in: path
  *         name: name
  *         required: true
- *         description: STM model name
- *         schema:
- *           type: string
+ *         schema: { type: string }
  *     requestBody:
  *       required: true
  *       content:
@@ -281,30 +229,14 @@ locks.post('/:name/lock/renew', async (req: Request, res: Response) => {
  *             type: object
  *             required: [lockId]
  *             properties:
- *               lockId:
- *                 type: string
+ *               lockId: { type: string }
  *     responses:
  *       200:
  *         description: Lock released
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
  *       400:
  *         description: Missing lockId
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
  *       500:
  *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
  */
 locks.post('/:name/lock/release', async (req: Request, res: Response) => {
   const user = (req as AuthedRequest).user!;
@@ -327,7 +259,7 @@ locks.post('/:name/lock/release', async (req: Request, res: Response) => {
  * @openapi
  * /models/{name}/lock:
  *   get:
- *     summary: Check the current lock status of a model
+ *     summary: Check the current lock status of a model (includes lock_type)
  *     tags: [Locks]
  *     security:
  *       - BearerAuth: []
@@ -335,47 +267,14 @@ locks.post('/:name/lock/release', async (req: Request, res: Response) => {
  *       - in: path
  *         name: name
  *         required: true
- *         description: STM model name
- *         schema:
- *           type: string
+ *         schema: { type: string }
  *     responses:
  *       200:
- *         description: Lock status (unlocked or locked with details)
- *         content:
- *           application/json:
- *             schema:
- *               oneOf:
- *                 - type: object
- *                   properties:
- *                     locked:
- *                       type: boolean
- *                       enum: [false]
- *                 - type: object
- *                   properties:
- *                     locked:
- *                       type: boolean
- *                       enum: [true]
- *                     lockId:
- *                       type: string
- *                     lockedBy:
- *                       type: string
- *                     expiresAt:
- *                       type: string
- *                       format: date-time
- *                     owner:
- *                       type: boolean
+ *         description: Lock status
  *       404:
  *         description: Model not found
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
  *       500:
  *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
  */
 locks.get('/:name/lock', async (req: Request, res: Response) => {
   const user = (req as AuthedRequest).user!;
@@ -386,8 +285,10 @@ locks.get('/:name/lock', async (req: Request, res: Response) => {
     if (modelRes.rows.length === 0) return res.status(404).json({ error: 'Model not found' });
     const modelId = modelRes.rows[0].id;
 
-    const result = await pool.query<{ id: number; user_id: number; expires_at: string; email: string }>(
-      `SELECT cl.id, cl.user_id, cl.expires_at, au.email
+    const result = await pool.query<{
+      id: number; user_id: number; expires_at: string; email: string; lock_type: string;
+    }>(
+      `SELECT cl.id, cl.user_id, cl.expires_at, au.email, cl.lock_type
        FROM collab_locks cl JOIN auth_users au ON au.id = cl.user_id
        WHERE cl.model_id = $1 AND cl.entity_type = 'model' AND cl.entity_id = $2
          AND cl.expires_at > NOW()`,
@@ -405,6 +306,7 @@ locks.get('/:name/lock', async (req: Request, res: Response) => {
       lockedBy: lock.email,
       expiresAt: lock.expires_at,
       owner: lock.user_id === user.id,
+      lock_type: lock.lock_type,
     });
   } catch (err) {
     console.error('[locks] get lock status failed:', err);

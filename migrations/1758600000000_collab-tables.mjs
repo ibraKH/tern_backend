@@ -44,6 +44,8 @@ export const up = (pgm) => {
   pgm.addConstraint('collab_locks', 'fk_collab_locks_user', {
     foreignKeys: { columns: 'user_id', references: 'auth_users(id)', onDelete: 'CASCADE', onUpdate: 'CASCADE' },
   });
+  // TASK-24 verified: this UNIQUE constraint guarantees at most one lock per
+  // (model_id, entity_type, entity_id) tuple — no additional migration needed.
   pgm.addConstraint('collab_locks', 'uq_collab_locks_node', {
     unique: ['model_id', 'entity_type', 'entity_id'],
   });
