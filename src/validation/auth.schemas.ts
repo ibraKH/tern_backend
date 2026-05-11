@@ -30,7 +30,6 @@ export const signupSchema = z.object({
   name: nameSchema,
   email: emailSchema,
   password: passwordSchema,
-  role: z.enum(['Admin','Viewer','Editor']).optional().default('Viewer')
 });
 
 export const loginSchema = z.object({

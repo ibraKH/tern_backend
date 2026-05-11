@@ -81,7 +81,7 @@ export async function createUser(dto: Signup): Promise<User> {
       `INSERT INTO auth_users (email, password_hash, role)
        VALUES ($1, $2, $3)
        RETURNING id`,
-      [e, pw, dto.role]
+      [e, pw, 'Viewer']
     );
     const authUserId = uRows[0].id;
 

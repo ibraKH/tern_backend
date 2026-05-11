@@ -7,11 +7,10 @@ export type User = {
   is_verified: boolean;
 };
 
-export type Signup = { 
+export type Signup = {
     name: string;
-    email: string; 
-    password: string; 
-    role: User["role"] 
+    email: string;
+    password: string;
 };
 
 export type Login  = { 

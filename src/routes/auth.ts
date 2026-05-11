@@ -18,7 +18,7 @@ import {
   resendVerificationSchema,
 } from '../validation/auth.schemas';
 import { AppError, AuthInvalidError, ConflictError } from "../errors";
-import { limitSignup, limitLogin, limitResendVerification } from "../middlewares/rateLimit";
+import { limitSignup, limitLogin, limitResendVerification, limitVerification } from "../middlewares/rateLimit";
 
 const auth = express.Router();
 
@@ -188,7 +188,7 @@ auth.post("/signup", limitSignup, validate({ body: signupSchema }), async (req: 
  *       400:
  *         description: Invalid or expired token
  */
-auth.post("/verify", validate({ body: verifyTokenSchema }), async (req: Request, res: Response, next: NextFunction) => {
+auth.post("/verify", limitVerification, validate({ body: verifyTokenSchema }), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const user = await consumeVerificationToken(req.body.token);
     const token = signToken({ uid: user.id, email: user.email, role: user.role });

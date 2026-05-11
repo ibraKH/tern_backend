@@ -31,6 +31,20 @@ export function limitSignup(req: Request, res: Response, next: NextFunction) {
     );
 }
 
+const verificationLimiter = new RateLimiterMemory({
+  points: 5,
+  duration: 60 * 15,
+});
+
+export function limitVerification(req: Request, res: Response, next: NextFunction) {
+  const key = req.ip ?? "unknown";
+  verificationLimiter.consume(key)
+    .then(() => next())
+    .catch(() =>
+      res.status(429).json({ message: "Too many verification attempts, please try again later" })
+    );
+}
+
 const loginLimiter = new RateLimiterMemory({ points: 20, duration: 60 * 5 });
 export function limitLogin(req: Request, res: Response, next: NextFunction) {
   const key = req.ip ?? "unknown";
