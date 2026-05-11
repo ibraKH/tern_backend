@@ -9,7 +9,7 @@ export async function getAllModels(userEmail?: string) {
     if (!userEmail) {
       // Admin path — return all non-template models.
       const result = await client.query(
-        `SELECT stm_name FROM stmmodel WHERE is_template = false ORDER BY created_at DESC`
+        `SELECT stm_name FROM stmmodel WHERE is_template = false ORDER BY stm_name ASC`
       );
       return result.rows.map(r => r.stm_name);
     }
@@ -21,7 +21,7 @@ export async function getAllModels(userEmail?: string) {
        INNER JOIN model_permissions mp ON mp.stm_name = m.stm_name
        WHERE mp.user_email = $1
          AND m.is_template = false
-       ORDER BY m.created_at DESC`,
+       ORDER BY m.stm_name ASC`,
       [userEmail]
     );
     return result.rows.map(r => r.stm_name);
@@ -41,7 +41,7 @@ export async function getAssignedModels(userEmail: string): Promise<Array<{ stm_
        INNER JOIN model_permissions mp ON mp.stm_name = m.stm_name
        WHERE mp.user_email = $1
          AND m.is_template = false
-       ORDER BY m.created_at DESC`,
+       ORDER BY m.stm_name ASC`,
       [userEmail]
     );
     return result.rows;
