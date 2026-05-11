@@ -1,4 +1,4 @@
-export type ModelRole = 'viewer' | 'editor' | 'reviewer';
+export type ModelRole = 'owner' | 'editor' | 'reviewer' | 'viewer';
 
 export interface ModelPermission {
   id: number;
