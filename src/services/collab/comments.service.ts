@@ -92,28 +92,40 @@ export async function createComment(params: CreateCommentParams): Promise<Commen
 }
 
 /**
- * List all non-deleted comments for a model, ordered by creation time ASC.
+ * List comments for a model with pagination, ordered by creation time ASC.
+ * Default limit 50, max 100. Returns { comments, total, limit, offset }.
  */
-export async function getComments(modelName: string): Promise<CommentEntry[]> {
+export async function getComments(
+  modelName: string,
+  limit = 50,
+  offset = 0,
+): Promise<{ comments: CommentEntry[]; total: number; limit: number; offset: number }> {
   const modelRes = await resolveModelId(modelName);
-  if (modelRes.rows.length === 0) return [];
+  if (modelRes.rows.length === 0) return { comments: [], total: 0, limit, offset };
   const modelId = modelRes.rows[0].id;
 
-  const result = await pool.query<{
-    id: number; entity_type: string | null; entity_id: number | null;
-    parent_id: number | null; body: string; resolved: boolean;
-    created_at: string; updated_at: string; user_id: number; email: string;
-  }>(
-    `SELECT cc.id, cc.entity_type, cc.entity_id, cc.parent_id, cc.body,
-            cc.resolved, cc.created_at, cc.updated_at, cc.user_id, au.email
-     FROM collab_comments cc
-     JOIN auth_users au ON au.id = cc.user_id
-     WHERE cc.model_id = $1
-     ORDER BY cc.created_at ASC`,
-    [modelId]
-  );
+  const [countRes, result] = await Promise.all([
+    pool.query<{ count: string }>(
+      'SELECT COUNT(*)::text AS count FROM collab_comments WHERE model_id = $1',
+      [modelId]
+    ),
+    pool.query<{
+      id: number; entity_type: string | null; entity_id: number | null;
+      parent_id: number | null; body: string; resolved: boolean;
+      created_at: string; updated_at: string; user_id: number; email: string;
+    }>(
+      `SELECT cc.id, cc.entity_type, cc.entity_id, cc.parent_id, cc.body,
+              cc.resolved, cc.created_at, cc.updated_at, cc.user_id, au.email
+       FROM collab_comments cc
+       JOIN auth_users au ON au.id = cc.user_id
+       WHERE cc.model_id = $1
+       ORDER BY cc.created_at ASC
+       LIMIT $2 OFFSET $3`,
+      [modelId, limit, offset]
+    ),
+  ]);
 
-  return result.rows.map((r) => ({
+  const comments = result.rows.map((r) => ({
     id: r.id,
     entityType: r.entity_type,
     entityId: r.entity_id,
@@ -125,6 +137,8 @@ export async function getComments(modelName: string): Promise<CommentEntry[]> {
     author: { id: r.user_id, email: r.email },
     mentions: [],
   }));
+
+  return { comments, total: Number(countRes.rows[0].count), limit, offset };
 }
 
 /**

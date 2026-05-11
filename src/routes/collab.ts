@@ -2,7 +2,8 @@ import express from 'express';
 import type { Request, Response } from 'express';
 
 import { requireAuth } from '../middlewares/auth.middleware';
-import { requireRole } from '../middlewares/role.middleware';
+import { requireAdmin } from '../middlewares/requireAdmin';
+import { requireModelRole } from '../middlewares/model-permission.middleware';
 import { getRecentActivity } from '../services/collab/activity.service';
 import { createComment, getComments, resolveComment, deleteComment } from '../services/collab/comments.service';
 import { createMilestone, listMilestones, getMilestone, deleteMilestone } from '../services/collab/milestones.service';
@@ -11,6 +12,7 @@ import type { BMRGData } from '../types/models.types';
 import { logActivity } from '../services/collab/activity.service';
 import { io } from '../socket';
 import { broadcastActivity } from '../collab/roomManager';
+import { MODEL_ROLES } from '../constants/roles';
 
 type AuthedRequest = Request & { user?: { id: number; email: string; role: string; contributor_id: number | null } };
 
@@ -37,61 +39,42 @@ const collab = express.Router();
  *       - in: path
  *         name: modelName
  *         required: true
- *         description: STM model name
- *         schema:
- *           type: string
+ *         schema: { type: string }
  *       - in: query
  *         name: limit
- *         description: Maximum entries to return (1–100, default 20)
- *         schema:
- *           type: integer
- *           minimum: 1
- *           maximum: 100
- *           default: 20
+ *         schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
  *     responses:
  *       200:
  *         description: Activity entries
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 entries:
- *                   type: array
- *                   items:
- *                     type: object
  *       400:
  *         description: Invalid modelName
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
  *       500:
  *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
  */
-collab.get('/:modelName/activity', requireAuth, async (req: Request, res: Response) => {
-  const { modelName } = req.params as { modelName: string };
-  if (!modelName?.trim()) return res.status(400).json({ error: 'modelName must be a non-empty string' });
+collab.get(
+  '/:modelName/activity',
+  requireAuth,
+  requireModelRole([MODEL_ROLES.OWNER, MODEL_ROLES.EDITOR, MODEL_ROLES.REVIEWER, MODEL_ROLES.VIEWER]),
+  async (req: Request, res: Response) => {
+    const { modelName } = req.params as { modelName: string };
+    if (!modelName?.trim()) return res.status(400).json({ error: 'modelName must be a non-empty string' });
 
-  const rawLimit = req.query.limit;
-  let limit = 20;
-  if (rawLimit !== undefined) {
-    const parsed = Number(rawLimit);
-    limit = Number.isInteger(parsed) && parsed > 0 ? Math.min(parsed, 100) : 20;
-  }
+    const rawLimit = req.query.limit;
+    let limit = 20;
+    if (rawLimit !== undefined) {
+      const parsed = Number(rawLimit);
+      limit = Number.isInteger(parsed) && parsed > 0 ? Math.min(parsed, 100) : 20;
+    }
 
-  try {
-    const entries = await getRecentActivity(modelName.trim(), limit);
-    return res.json({ entries });
-  } catch (err) {
-    console.error('[collab] GET activity failed:', err);
-    return res.status(500).json({ error: 'Failed to fetch activity log' });
-  }
-});
+    try {
+      const entries = await getRecentActivity(modelName.trim(), limit);
+      return res.json({ entries });
+    } catch (err) {
+      console.error('[collab] GET activity failed:', err);
+      return res.status(500).json({ error: 'Failed to fetch activity log' });
+    }
+  },
+);
 
 // ── Comments ─────────────────────────────────────────────────────────────────
 
@@ -99,7 +82,7 @@ collab.get('/:modelName/activity', requireAuth, async (req: Request, res: Respon
  * @openapi
  * /collab/{modelName}/comments:
  *   get:
- *     summary: Get all comments for a model
+ *     summary: Get paginated comments for a model
  *     tags: [Collab]
  *     security:
  *       - BearerAuth: []
@@ -107,12 +90,16 @@ collab.get('/:modelName/activity', requireAuth, async (req: Request, res: Respon
  *       - in: path
  *         name: modelName
  *         required: true
- *         description: STM model name
- *         schema:
- *           type: string
+ *         schema: { type: string }
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer, default: 50, maximum: 100 }
+ *       - in: query
+ *         name: offset
+ *         schema: { type: integer, default: 0 }
  *     responses:
  *       200:
- *         description: List of comments
+ *         description: Paginated list of comments
  *         content:
  *           application/json:
  *             schema:
@@ -120,25 +107,35 @@ collab.get('/:modelName/activity', requireAuth, async (req: Request, res: Respon
  *               properties:
  *                 comments:
  *                   type: array
- *                   items:
- *                     type: object
+ *                 total:
+ *                   type: integer
+ *                 limit:
+ *                   type: integer
+ *                 offset:
+ *                   type: integer
  *       500:
  *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
  */
-collab.get('/:modelName/comments', requireAuth, async (req: Request, res: Response) => {
-  const { modelName } = req.params as { modelName: string };
-  try {
-    const comments = await getComments(modelName);
-    return res.json({ comments });
-  } catch (err) {
-    console.error('[collab] GET comments failed:', err);
-    return res.status(500).json({ error: 'Failed to fetch comments' });
-  }
-});
+collab.get(
+  '/:modelName/comments',
+  requireAuth,
+  requireModelRole([MODEL_ROLES.OWNER, MODEL_ROLES.EDITOR, MODEL_ROLES.REVIEWER, MODEL_ROLES.VIEWER]),
+  async (req: Request, res: Response) => {
+    const { modelName } = req.params as { modelName: string };
+
+    const rawLimit = Number(req.query.limit ?? 50);
+    const limit = Math.min(Number.isInteger(rawLimit) && rawLimit > 0 ? rawLimit : 50, 100);
+    const offset = Math.max(Number(req.query.offset ?? 0) || 0, 0);
+
+    try {
+      const result = await getComments(modelName, limit, offset);
+      return res.json(result);
+    } catch (err) {
+      console.error('[collab] GET comments failed:', err);
+      return res.status(500).json({ error: 'Failed to fetch comments' });
+    }
+  },
+);
 
 /**
  * @openapi
@@ -152,9 +149,7 @@ collab.get('/:modelName/comments', requireAuth, async (req: Request, res: Respon
  *       - in: path
  *         name: modelName
  *         required: true
- *         description: STM model name
- *         schema:
- *           type: string
+ *         schema: { type: string }
  *     requestBody:
  *       required: true
  *       content:
@@ -179,72 +174,56 @@ collab.get('/:modelName/comments', requireAuth, async (req: Request, res: Respon
  *     responses:
  *       201:
  *         description: Comment created
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 comment:
- *                   type: object
  *       400:
  *         description: Missing body, body too long, or invalid entityType
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
  *       500:
  *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
  */
-collab.post('/:modelName/comments', requireAuth, async (req: Request, res: Response) => {
-  const { modelName } = req.params as { modelName: string };
-  const user = (req as AuthedRequest).user!;
-  const { entityType, entityId, body, parentId } = req.body as {
-    entityType?: string; entityId?: number; body?: string; parentId?: number;
-  };
-
-  if (!body || typeof body !== 'string' || !body.trim()) {
-    return res.status(400).json({ error: 'body is required and must be a non-empty string' });
-  }
-  if (body.length > 2000) {
-    return res.status(400).json({ error: 'body must be at most 2000 characters' });
-  }
-  if (entityType !== undefined && entityType !== 'node' && entityType !== 'edge' && entityType !== null) {
-    return res.status(400).json({ error: 'entityType must be "node", "edge", or null' });
-  }
-
-  try {
-    const comment = await createComment({
-      modelName,
-      entityType: entityType ?? null,
-      entityId: entityId ?? null,
-      authorId: user.id,
-      body: body.trim(),
-      parentId: parentId ?? null,
-    });
-
-    // Broadcast to room in real time.
-    const roomKey = `name:${modelName}`;
-    io.to(roomKey).emit('comment:new', { comment, entityType: comment.entityType, entityId: comment.entityId });
-
-    // Log activity and broadcast.
-    const entry = {
-      id: 0, action: 'comment_added', entityType: comment.entityType, entityId: comment.entityId,
-      detail: { body: comment.body.slice(0, 100) }, createdAt: comment.createdAt,
-      user: { id: user.id, email: user.email },
+collab.post(
+  '/:modelName/comments',
+  requireAuth,
+  requireModelRole([MODEL_ROLES.OWNER, MODEL_ROLES.EDITOR, MODEL_ROLES.REVIEWER]),
+  async (req: Request, res: Response) => {
+    const { modelName } = req.params as { modelName: string };
+    const user = (req as AuthedRequest).user!;
+    const { entityType, entityId, body, parentId } = req.body as {
+      entityType?: string; entityId?: number; body?: string; parentId?: number;
     };
-    broadcastActivity(io, roomKey, entry);
-    void logActivity({ modelName, userId: user.id, action: 'comment_added', entityType: comment.entityType ?? undefined, entityId: comment.entityId ?? undefined });
 
-    return res.status(201).json({ comment });
-  } catch (err: unknown) {
-    const status = (err as { status?: number }).status ?? 500;
-    return res.status(status).json({ error: (err as Error).message || 'Failed to create comment' });
-  }
-});
+    if (!body || typeof body !== 'string' || !body.trim()) {
+      return res.status(400).json({ error: 'body is required and must be a non-empty string' });
+    }
+    if (body.length > 2000) {
+      return res.status(400).json({ error: 'body must be at most 2000 characters' });
+    }
+    if (entityType !== undefined && entityType !== 'node' && entityType !== 'edge' && entityType !== null) {
+      return res.status(400).json({ error: 'entityType must be "node", "edge", or null' });
+    }
+
+    try {
+      const comment = await createComment({
+        modelName, entityType: entityType ?? null, entityId: entityId ?? null,
+        authorId: user.id, body: body.trim(), parentId: parentId ?? null,
+      });
+
+      const roomKey = `name:${modelName}`;
+      io.to(roomKey).emit('comment:new', { comment, entityType: comment.entityType, entityId: comment.entityId });
+
+      const entry = {
+        id: 0, action: 'comment_added', entityType: comment.entityType, entityId: comment.entityId,
+        detail: { body: comment.body.slice(0, 100) }, createdAt: comment.createdAt,
+        user: { id: user.id, email: user.email },
+      };
+      broadcastActivity(io, roomKey, entry);
+      void logActivity({ modelName, userId: user.id, action: 'comment_added', entityType: comment.entityType ?? undefined, entityId: comment.entityId ?? undefined });
+
+      return res.status(201).json({ comment });
+    } catch (err: unknown) {
+      const status = (err as { status?: number }).status ?? 500;
+      return res.status(status).json({ error: (err as Error).message || 'Failed to create comment' });
+    }
+  },
+);
 
 /**
  * @openapi
@@ -258,47 +237,34 @@ collab.post('/:modelName/comments', requireAuth, async (req: Request, res: Respo
  *       - in: path
  *         name: modelName
  *         required: true
- *         schema:
- *           type: string
+ *         schema: { type: string }
  *       - in: path
  *         name: id
  *         required: true
- *         description: Comment ID
- *         schema:
- *           type: integer
+ *         schema: { type: integer }
  *     responses:
  *       200:
  *         description: Comment resolved
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
  *       403:
  *         description: Not the comment author or insufficient role
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
  *       500:
  *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
  */
-collab.patch('/:modelName/comments/:id/resolve', requireAuth, async (req: Request, res: Response) => {
-  const user = (req as AuthedRequest).user!;
-  try {
-    await resolveComment(Number(req.params.id), user.id, user.role);
-    return res.json({ success: true });
-  } catch (err: unknown) {
-    const status = (err as { status?: number }).status ?? 500;
-    return res.status(status).json({ error: (err as Error).message });
-  }
-});
+collab.patch(
+  '/:modelName/comments/:id/resolve',
+  requireAuth,
+  requireModelRole([MODEL_ROLES.OWNER, MODEL_ROLES.EDITOR, MODEL_ROLES.REVIEWER]),
+  async (req: Request, res: Response) => {
+    const user = (req as AuthedRequest).user!;
+    try {
+      await resolveComment(Number(req.params.id), user.id, user.role);
+      return res.json({ success: true });
+    } catch (err: unknown) {
+      const status = (err as { status?: number }).status ?? 500;
+      return res.status(status).json({ error: (err as Error).message });
+    }
+  },
+);
 
 /**
  * @openapi
@@ -312,47 +278,34 @@ collab.patch('/:modelName/comments/:id/resolve', requireAuth, async (req: Reques
  *       - in: path
  *         name: modelName
  *         required: true
- *         schema:
- *           type: string
+ *         schema: { type: string }
  *       - in: path
  *         name: id
  *         required: true
- *         description: Comment ID
- *         schema:
- *           type: integer
+ *         schema: { type: integer }
  *     responses:
  *       200:
  *         description: Comment deleted
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
  *       403:
  *         description: Not the comment author or insufficient role
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
  *       500:
  *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
  */
-collab.delete('/:modelName/comments/:id', requireAuth, async (req: Request, res: Response) => {
-  const user = (req as AuthedRequest).user!;
-  try {
-    await deleteComment(Number(req.params.id), user.id, user.role);
-    return res.json({ success: true });
-  } catch (err: unknown) {
-    const status = (err as { status?: number }).status ?? 500;
-    return res.status(status).json({ error: (err as Error).message });
-  }
-});
+collab.delete(
+  '/:modelName/comments/:id',
+  requireAuth,
+  requireModelRole([MODEL_ROLES.OWNER, MODEL_ROLES.EDITOR, MODEL_ROLES.REVIEWER]),
+  async (req: Request, res: Response) => {
+    const user = (req as AuthedRequest).user!;
+    try {
+      await deleteComment(Number(req.params.id), user.id, user.role);
+      return res.json({ success: true });
+    } catch (err: unknown) {
+      const status = (err as { status?: number }).status ?? 500;
+      return res.status(status).json({ error: (err as Error).message });
+    }
+  },
+);
 
 // ── Milestones ───────────────────────────────────────────────────────────────
 
@@ -368,44 +321,35 @@ collab.delete('/:modelName/comments/:id', requireAuth, async (req: Request, res:
  *       - in: path
  *         name: modelName
  *         required: true
- *         schema:
- *           type: string
+ *         schema: { type: string }
  *     responses:
  *       200:
  *         description: Milestone list
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 milestones:
- *                   type: array
- *                   items:
- *                     type: object
  *       500:
  *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
  */
-collab.get('/:modelName/milestones', requireAuth, async (req: Request, res: Response) => {
-  const { modelName } = req.params as { modelName: string };
-  try {
-    const milestones = await listMilestones(modelName);
-    return res.json({ milestones });
-  } catch (err) {
-    console.error('[collab] GET milestones failed:', err);
-    return res.status(500).json({ error: 'Failed to fetch milestones' });
-  }
-});
+collab.get(
+  '/:modelName/milestones',
+  requireAuth,
+  requireModelRole([MODEL_ROLES.OWNER, MODEL_ROLES.EDITOR, MODEL_ROLES.REVIEWER, MODEL_ROLES.VIEWER]),
+  async (req: Request, res: Response) => {
+    const { modelName } = req.params as { modelName: string };
+    try {
+      const milestones = await listMilestones(modelName);
+      return res.json({ milestones });
+    } catch (err) {
+      console.error('[collab] GET milestones failed:', err);
+      return res.status(500).json({ error: 'Failed to fetch milestones' });
+    }
+  },
+);
 
 /**
  * @openapi
  * /collab/{modelName}/milestones:
  *   post:
  *     summary: Create a new milestone snapshot for a model
- *     description: Requires Admin or Editor role.
+ *     description: Requires Owner or Editor model role.
  *     tags: [Collab]
  *     security:
  *       - BearerAuth: []
@@ -413,8 +357,7 @@ collab.get('/:modelName/milestones', requireAuth, async (req: Request, res: Resp
  *       - in: path
  *         name: modelName
  *         required: true
- *         schema:
- *           type: string
+ *         schema: { type: string }
  *     requestBody:
  *       required: true
  *       content:
@@ -429,30 +372,15 @@ collab.get('/:modelName/milestones', requireAuth, async (req: Request, res: Resp
  *     responses:
  *       201:
  *         description: Milestone created
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 milestone:
- *                   type: object
  *       400:
  *         description: Missing or invalid label
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
  *       500:
  *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
  */
 collab.post(
   '/:modelName/milestones',
   requireAuth,
-  requireRole(['Admin', 'Editor']),
+  requireModelRole([MODEL_ROLES.OWNER, MODEL_ROLES.EDITOR]),
   async (req: Request, res: Response) => {
     const { modelName } = req.params as { modelName: string };
     const user = (req as AuthedRequest).user!;
@@ -468,7 +396,6 @@ collab.post(
     try {
       const milestone = await createMilestone({ modelName, label: label.trim(), createdBy: user.id });
 
-      // Broadcast to room.
       const roomKey = `name:${modelName}`;
       io.to(roomKey).emit('milestone:created', milestone);
 
@@ -484,7 +411,7 @@ collab.post(
       const status = (err as { status?: number }).status ?? 500;
       return res.status(status).json({ error: (err as Error).message });
     }
-  }
+  },
 );
 
 /**
@@ -499,47 +426,34 @@ collab.post(
  *       - in: path
  *         name: modelName
  *         required: true
- *         schema:
- *           type: string
+ *         schema: { type: string }
  *       - in: path
  *         name: id
  *         required: true
- *         description: Milestone ID
- *         schema:
- *           type: integer
+ *         schema: { type: integer }
  *     responses:
  *       200:
  *         description: Milestone found
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 milestone:
- *                   type: object
  *       404:
  *         description: Milestone not found
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
  *       500:
  *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
  */
-collab.get('/:modelName/milestones/:id', requireAuth, async (req: Request, res: Response) => {
-  const { modelName, id } = req.params as { modelName: string; id: string };
-  try {
-    const milestone = await getMilestone(Number(id), modelName);
-    if (!milestone) return res.status(404).json({ error: 'Milestone not found' });
-    return res.json({ milestone });
-  } catch {
-    return res.status(500).json({ error: 'Failed to fetch milestone' });
-  }
-});
+collab.get(
+  '/:modelName/milestones/:id',
+  requireAuth,
+  requireModelRole([MODEL_ROLES.OWNER, MODEL_ROLES.EDITOR, MODEL_ROLES.REVIEWER, MODEL_ROLES.VIEWER]),
+  async (req: Request, res: Response) => {
+    const { modelName, id } = req.params as { modelName: string; id: string };
+    try {
+      const milestone = await getMilestone(Number(id), modelName);
+      if (!milestone) return res.status(404).json({ error: 'Milestone not found' });
+      return res.json({ milestone });
+    } catch {
+      return res.status(500).json({ error: 'Failed to fetch milestone' });
+    }
+  },
+);
 
 /**
  * @openapi
@@ -553,54 +467,36 @@ collab.get('/:modelName/milestones/:id', requireAuth, async (req: Request, res: 
  *       - in: path
  *         name: modelName
  *         required: true
- *         schema:
- *           type: string
+ *         schema: { type: string }
  *       - in: path
  *         name: id
  *         required: true
- *         description: Milestone ID
- *         schema:
- *           type: integer
+ *         schema: { type: integer }
  *     responses:
  *       200:
  *         description: Milestone deleted
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
  *       403:
  *         description: Insufficient role (Admin required)
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
  *       404:
  *         description: Milestone not found
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
  */
 collab.delete(
   '/:modelName/milestones/:id',
   requireAuth,
-  requireRole(['Admin']),
+  requireAdmin,
   async (req: Request, res: Response) => {
     const { modelName, id } = req.params as { modelName: string; id: string };
     const deleted = await deleteMilestone(Number(id), modelName);
     if (!deleted) return res.status(404).json({ error: 'Milestone not found' });
     return res.json({ success: true });
-  }
+  },
 );
 
 /**
  * @openapi
  * /collab/{modelName}/milestones/{id}/restore:
  *   post:
- *     summary: Restore a model from a milestone snapshot (Admin/Editor only)
+ *     summary: Restore a model from a milestone snapshot (Owner or Editor model role required)
  *     tags: [Collab]
  *     security:
  *       - BearerAuth: []
@@ -608,47 +504,25 @@ collab.delete(
  *       - in: path
  *         name: modelName
  *         required: true
- *         schema:
- *           type: string
+ *         schema: { type: string }
  *       - in: path
  *         name: id
  *         required: true
- *         description: Milestone ID
- *         schema:
- *           type: integer
+ *         schema: { type: integer }
  *     responses:
  *       200:
  *         description: Model restored from milestone snapshot
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 message:
- *                   type: string
  *       403:
- *         description: Insufficient role (Admin or Editor required)
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
+ *         description: Insufficient role
  *       404:
  *         description: Milestone not found
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
  *       500:
  *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
  */
 collab.post(
   '/:modelName/milestones/:id/restore',
   requireAuth,
-  requireRole(['Admin', 'Editor']),
+  requireModelRole([MODEL_ROLES.OWNER, MODEL_ROLES.EDITOR]),
   async (req: Request, res: Response) => {
     const { modelName, id } = req.params as { modelName: string; id: string };
     const user = (req as AuthedRequest).user!;
@@ -657,7 +531,6 @@ collab.post(
       const milestone = await getMilestone(Number(id), modelName);
       if (!milestone) return res.status(404).json({ error: 'Milestone not found' });
 
-      // Restore the model from snapshot.
       await saveModel(milestone.snapshot as unknown as BMRGData);
 
       void logActivity({
@@ -682,7 +555,7 @@ collab.post(
       const message = (err as { message?: string }).message ?? 'Failed to restore model';
       return res.status(status).json({ error: message });
     }
-  }
+  },
 );
 
 export default collab;
