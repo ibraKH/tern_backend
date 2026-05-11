@@ -1,15 +1,50 @@
 import pool from '../../config/database';
 import type { BMRGData, StateData, TransitionData } from '../../types/models.types';
 
-// Get all model names
-export async function getAllModels() {
+// Get all non-template model names accessible to the given user.
+// If userEmail is not provided (Admin caller), all non-template models are returned.
+export async function getAllModels(userEmail?: string) {
+  const client = await pool.connect();
+  try {
+    if (!userEmail) {
+      // Admin path — return all non-template models.
+      const result = await client.query(
+        `SELECT stm_name FROM stmmodel WHERE is_template = false ORDER BY created_at DESC`
+      );
+      return result.rows.map(r => r.stm_name);
+    }
+
+    // Non-admin path — return only models the user has a permission row for.
+    const result = await client.query(
+      `SELECT m.stm_name
+       FROM stmmodel m
+       INNER JOIN model_permissions mp ON mp.stm_name = m.stm_name
+       WHERE mp.user_email = $1
+         AND m.is_template = false
+       ORDER BY m.created_at DESC`,
+      [userEmail]
+    );
+    return result.rows.map(r => r.stm_name);
+  } finally {
+    client.release();
+  }
+}
+
+// Get all models (with model_role) accessible to the given user (any permission row).
+// Returns only non-template models.
+export async function getAssignedModels(userEmail: string): Promise<Array<{ stm_name: string; model_role: string }>> {
   const client = await pool.connect();
   try {
     const result = await client.query(
-      `SELECT stm_name FROM stmmodel ORDER BY stm_name`
+      `SELECT m.stm_name, mp.role AS model_role
+       FROM stmmodel m
+       INNER JOIN model_permissions mp ON mp.stm_name = m.stm_name
+       WHERE mp.user_email = $1
+         AND m.is_template = false
+       ORDER BY m.created_at DESC`,
+      [userEmail]
     );
-    // Only return the names as an array of strings
-    return result.rows.map(r => r.stm_name);
+    return result.rows;
   } finally {
     client.release();
   }
@@ -22,7 +57,6 @@ export async function getTemplates() {
     const result = await client.query(
       `SELECT stm_name FROM stmmodel WHERE is_template = TRUE ORDER BY stm_name`
     );
-    // Only return the names as an array of strings
     return result.rows.map(r => r.stm_name);
   } finally {
     client.release();
@@ -33,7 +67,6 @@ export async function getTemplates() {
 export async function getModelByName(name: string): Promise<BMRGData | null> {
   const client = await pool.connect();
   try {
-    // Get model basic info
     const modelRes = await client.query(
       `SELECT id, stm_name, version, release_date, authorised_by,
               region, region_id, ecosystem_type,
@@ -51,7 +84,6 @@ export async function getModelByName(name: string): Promise<BMRGData | null> {
     }
     const row = modelRes.rows[0];
 
-    // Get contributors
     const contributorsRes = await client.query(
       `SELECT c.id, c.name, c.email, mc.contribution_type
          FROM model_contributions mc
@@ -61,7 +93,6 @@ export async function getModelByName(name: string): Promise<BMRGData | null> {
       [row.id]
     );
 
-    // Get states + vast_states + state_attributes
     const statesRes = await client.query(
       `SELECT s.id, s.state_name, s.eks_condition_estimate,
               s.condition_lower, s.condition_upper, s.ellictation_type,
@@ -76,14 +107,9 @@ export async function getModelByName(name: string): Promise<BMRGData | null> {
       [name]
     );
 
-    // Map DB enum values (e.g. "ClassI") back to display format ("Class I")
     const vastClassDisplayMap: Record<string, string> = {
-      ClassI: 'Class I',
-      ClassII: 'Class II',
-      ClassIII: 'Class III',
-      ClassIV: 'Class IV',
-      ClassV: 'Class V',
-      ClassVI: 'Class VI',
+      ClassI: 'Class I', ClassII: 'Class II', ClassIII: 'Class III',
+      ClassIV: 'Class IV', ClassV: 'Class V', ClassVI: 'Class VI',
     };
 
     const states: StateData[] = [];
@@ -118,7 +144,6 @@ export async function getModelByName(name: string): Promise<BMRGData | null> {
       });
     }
 
-    // Get transitions + causal_chain
     const transRes = await client.query(
       `SELECT t.id, t.stm_name, t.start_state_id, t.end_state_id,
               t.time_25, t.time_100, t.likelihood_25, t.likelihood_100,
@@ -134,9 +159,7 @@ export async function getModelByName(name: string): Promise<BMRGData | null> {
       const endState = states.find(s => s.state_id === t.end_state_id);
 
       const causalRes = await client.query(
-        `SELECT name, chain_part, driver_id
-         FROM causal_chain
-         WHERE transition_id = $1`,
+        `SELECT name, chain_part, driver_id FROM causal_chain WHERE transition_id = $1`,
         [t.id]
       );
 
@@ -157,12 +180,8 @@ export async function getModelByName(name: string): Promise<BMRGData | null> {
       });
     }
 
-    // Get method_alignment（1st method_name）
     const methodRes = await client.query(
-      `SELECT method_name
-       FROM method_alignment
-       WHERE stm_name = $1
-       LIMIT 1`,
+      `SELECT method_name FROM method_alignment WHERE stm_name = $1 LIMIT 1`,
       [name]
     );
 
