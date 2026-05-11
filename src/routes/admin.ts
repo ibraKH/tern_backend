@@ -4,6 +4,7 @@ import { RateLimiterMemory } from "rate-limiter-flexible";
 import pool from "../config/database";
 import { logAction } from "../utils/auditLog";
 import { getConnectedUserCount } from "../collab/roomManager";
+import { GLOBAL_ROLES } from "../constants/roles";
 
 const adminRouter = express.Router();
 
@@ -295,7 +296,7 @@ interface AuthenticatedRequest extends Request {
   };
 }
 
-const VALID_ROLES = ["Viewer", "Editor", "Admin"] as const;
+const VALID_ROLES = [GLOBAL_ROLES.VIEWER, GLOBAL_ROLES.EDITOR, GLOBAL_ROLES.ADMIN] as const;
 type Role = (typeof VALID_ROLES)[number];
 
 // 60 req/min per IP
@@ -404,6 +405,21 @@ adminRouter.patch("/users/:id/role", async (req: Request, res: Response) => {
   }
 
   try {
+    if (role !== GLOBAL_ROLES.ADMIN) {
+      const { rows: adminRows } = await pool.query(
+        `SELECT COUNT(*) FROM auth_users WHERE role = 'Admin'`
+      );
+      if (parseInt(adminRows[0].count, 10) === 1) {
+        const { rows: targetRows } = await pool.query(
+          `SELECT role FROM auth_users WHERE id = $1`,
+          [targetId]
+        );
+        if (targetRows[0]?.role === 'Admin') {
+          return res.status(400).json({ message: "Cannot demote the last Admin on the platform" });
+        }
+      }
+    }
+
     const result = await pool.query(
       `UPDATE auth_users SET role = $1 WHERE id = $2
        RETURNING id, email, role`,
@@ -466,13 +482,23 @@ adminRouter.delete("/users/:id", async (req: Request, res: Response) => {
 
   try {
     const lookup = await pool.query(
-      `SELECT email FROM auth_users WHERE id = $1`,
+      `SELECT email, role FROM auth_users WHERE id = $1`,
       [targetId]
     );
     if (lookup.rowCount === 0) {
       console.warn(`[DELETE /api/admin/users/${targetId}] 404 – actor ${actor.email}`);
       return res.status(404).json({ error: "User not found" });
     }
+
+    if (lookup.rows[0].role === GLOBAL_ROLES.ADMIN) {
+      const { rows: adminRows } = await pool.query(
+        `SELECT COUNT(*) FROM auth_users WHERE role = 'Admin'`
+      );
+      if (parseInt(adminRows[0].count, 10) === 1) {
+        return res.status(400).json({ message: "Cannot delete the last Admin on the platform" });
+      }
+    }
+
     const targetEmail: string = lookup.rows[0].email;
 
     await pool.query(`DELETE FROM auth_users WHERE id = $1`, [targetId]);
@@ -495,11 +521,11 @@ adminRouter.delete("/users/:id", async (req: Request, res: Response) => {
 // --- GET /api/admin/audit-log ---
 adminRouter.get("/audit-log", async (_req: Request, res: Response) => {
   try {
+    // Use the stored actor_email snapshot — no JOIN to auth_users needed.
     const result = await pool.query(
-      `SELECT al.*, u.email AS actor_email_current
-         FROM audit_log al
-         LEFT JOIN auth_users u ON al.actor_id = u.id
-         ORDER BY al.created_at DESC
+      `SELECT id, actor_id, actor_email, action, target_user_id, metadata, created_at
+         FROM audit_log
+         ORDER BY created_at DESC
          LIMIT 20`
     );
     res.json({ logs: result.rows });
