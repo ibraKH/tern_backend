@@ -3,37 +3,30 @@ import type { BMRGData, Contributor, StateData, TransitionData } from '../../typ
 import type { PoolClient } from 'pg';
 import { calcTransitionDelta } from '../../utils/transition.utils';
 import { assertModelUnlocked, assertModelUnlockedById } from './reviewLock.service';
+import { ConflictError } from '../../errors';
+
+// Template names reserved by the system — users cannot create models with these names.
+const PROTECTED_TEMPLATE_NAMES: string[] = ['Woodlands', 'Grasslands', 'Shrublands'];
 
 // ---------- Utility functions ----------
 export function normalizeReleaseDate(release_date?: string): string | null {
-  // Normalize release_date (e.g., "Aug-24" → "YYYY-08-24", assuming current year)
   let normalizedReleaseDate: string | null = null;
   if (release_date) {
     const monthMap: Record<string, string> = {
-      Jan: '01',
-      Feb: '02',
-      Mar: '03',
-      Apr: '04',
-      May: '05',
-      Jun: '06',
-      Jul: '07',
-      Aug: '08',
-      Sep: '09',
-      Oct: '10',
-      Nov: '11',
-      Dec: '12'
+      Jan: '01', Feb: '02', Mar: '03', Apr: '04', May: '05', Jun: '06',
+      Jul: '07', Aug: '08', Sep: '09', Oct: '10', Nov: '11', Dec: '12',
     };
 
-    const match = release_date.match(/^([A-Za-z]{3})-(\d{1,2})$/); // e.g., "Aug-24"
+    const match = release_date.match(/^([A-Za-z]{3})-(\d{1,2})$/);
     if (match) {
       const [, monthStr, yearStr] = match;
       const monthNum = monthMap[monthStr];
       if (monthNum) {
-        const fullYear = `20${yearStr.padStart(2, '0')}`; // "24" -> "2024"
-        normalizedReleaseDate = `${fullYear}-${monthNum}-01`; // Use first day of month
+        const fullYear = `20${yearStr.padStart(2, '0')}`;
+        normalizedReleaseDate = `${fullYear}-${monthNum}-01`;
       }
     } else if (!isNaN(Date.parse(release_date))) {
-      normalizedReleaseDate = new Date(release_date).toISOString().split('T')[0]; // already in a valid date format
+      normalizedReleaseDate = new Date(release_date).toISOString().split('T')[0];
     } else {
       throw new Error(`Invalid release_date format: ${release_date}`);
     }
@@ -50,24 +43,21 @@ export async function buildDynamicUpdate<IdT extends number | string>(
   idValue: IdT,
   updateMap: Record<string, unknown>
 ): Promise<IdT | null> {
-  // Build SET clause dynamically (only include fields that are not undefined)
   const fields: string[] = [];
   const values: unknown[] = [];
 
   for (const [key, value] of Object.entries(updateMap)) {
-    // Skip undefined (not provided), but include null (to clear the field)
     if (value !== undefined) {
       fields.push(`${key} = $${values.length + 1}`);
-      values.push(value); // null will clear the column
+      values.push(value);
     }
   }
 
   if (fields.length === 0) {
-    // log('No fields to update for', tableName, 'id:', idValue);
-    return idValue; // Nothing to update
+    return idValue;
   }
 
-  values.push(idValue); // last param is id
+  values.push(idValue);
   const query = `
     UPDATE ${tableName}
     SET ${fields.join(", ")}
@@ -86,7 +76,11 @@ export async function buildDynamicUpdate<IdT extends number | string>(
 
 // ---------- DB upsert helpers ----------
 // 1. Upsert main model
-export async function upsertModelMetadata(client: Pick<PoolClient, 'query'>, modelData: BMRGData): Promise<number> {
+export async function upsertModelMetadata(
+  client: Pick<PoolClient, 'query'>,
+  modelData: BMRGData,
+  creatorEmail?: string,
+): Promise<number> {
   const {
     id,
     stm_name,
@@ -103,20 +97,16 @@ export async function upsertModelMetadata(client: Pick<PoolClient, 'query'>, mod
     peer_reviewed,
     no_peer_reviewers,
   } = modelData;
-  // Normalize release_date (e.g., "Aug-24" → "YYYY-08-24", assuming current year)
   const normalizedReleaseDate = normalizeReleaseDate(release_date);
-  // modelId
   let modelResult;
 
-  // Upsert main model data
   if (id) {
     // --- UPDATE existing record ---
-    // Build SET clause dynamically (only include fields that are not undefined)
+    // authorised_by is intentionally omitted: do not overwrite the original value.
     const modelUpdate = await buildDynamicUpdate(client, 'stmmodel', 'id', id, {
       stm_name,
       version,
       release_date: release_date != undefined ? normalizedReleaseDate : undefined,
-      authorised_by,
       region,
       region_id,
       ecosystem_type,
@@ -131,14 +121,15 @@ export async function upsertModelMetadata(client: Pick<PoolClient, 'query'>, mod
     return modelUpdate as number;
 
   } else {
-    // Insert new record or update if stm_name exists
-    // chreck region_id exists in regions table
+    // Insert new record
     if (region_id) {
       const regionCheck = await client.query('SELECT id FROM regions WHERE id = $1', [region_id]);
       if (regionCheck.rows.length === 0) {
         throw new Error(`region_id ${region_id} not exist regions table`);
       }
     }
+    // authorised_by comes from the server-supplied creatorEmail, not from the request body.
+    const serverAuthorisedBy = creatorEmail ?? authorised_by ?? null;
     try {
       modelResult = await client.query(
         `INSERT INTO stmmodel (
@@ -148,30 +139,26 @@ export async function upsertModelMetadata(client: Pick<PoolClient, 'query'>, mod
           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
           RETURNING id`,
         [
-          stm_name, version, normalizedReleaseDate, authorised_by, region, region_id, ecosystem_type,
+          stm_name, version, normalizedReleaseDate, serverAuthorisedBy, region, region_id, ecosystem_type,
           aus_eco_archetype_code, aus_eco_archetype_name, aus_eco_umbrella_code, peer_reviewed, no_peer_reviewers, climate
         ]
       );
     } catch (err: unknown) {
       const pgErr = err as { code?: string };
-      // Check for Postgres unique constraint violation (conflict)
       if (pgErr.code === "23505") {
         throw {
-          status: 409, // HTTP Conflict
+          status: 409,
           message: `A model with the name ${stm_name} already exists`,
         };
       }
-      // Re-throw any other error
       throw {
         status: 500,
         message: `Database error: ${(err as Error).message || String(err)}`,
-      }
+      };
     }
-    // stmmodel id
     const modelId = modelResult.rows[0]?.id;
     return modelId;
   }
-
 }
 
 // 2. Upsert contributors
@@ -181,7 +168,6 @@ export async function upsertContributors(client: Pick<PoolClient, 'query'>, mode
     const email = expert.email?.trim().toLowerCase();
     let contributorId = expert.contributor_id ?? null;
 
-    // 1) Resolve contributor_id: by explicit id, else by email, else insert
     if (!contributorId) {
       const { rows: found } = await client.query(
         `SELECT id FROM contributors WHERE LOWER(email) = $1 LIMIT 1`,
@@ -197,14 +183,12 @@ export async function upsertContributors(client: Pick<PoolClient, 'query'>, mode
         contributorId = inserted[0].id;
       }
     } else {
-      // make sure the person exists; if yes, update name/email (id is the source of truth)
       await client.query(
         `UPDATE contributors SET name = $1, email = $2 WHERE id = $3`,
         [expert.name, email, contributorId]
       );
     }
 
-    // 2) Upsert the per-model role/link
     await client.query(
       `INSERT INTO model_contributions (stm_id, contributor_id, contribution_type)
        VALUES ($1, $2, $3)
@@ -217,34 +201,24 @@ export async function upsertContributors(client: Pick<PoolClient, 'query'>, mode
 
 // 3. Upsert states & vast_states & state_attributes
 export async function upsertStates(client: Pick<PoolClient, 'query'>, stm_name: string, states: StateData[]): Promise<Record<number, number>> {
-  // frontend_state_id -> real_state_id mapping
   const stateMap: Record<number, number> = {};
 
   for (const state of states) {
-    // 3.1 Upsert vast_state
-    // There is vast_eks_state in the StateData type, but no such column in the database
     let vastStateId = null;
     if (!('vast_state' in state)) {
-      vastStateId = undefined;// not clearing the field
+      vastStateId = undefined;
     }
     if (state.vast_state) {
-      // --- UPSERT vast_state ---
       let vastClass = null;
-      // Map vast_class to match ENUM in the database
       const vastClassMap: Record<string, string> = {
-        "Class I": "ClassI",
-        "Class II": "ClassII",
-        "Class III": "ClassIII",
-        "Class IV": "ClassIV",
-        "Class V": "ClassV",
-        "Class VI": "ClassVI",
+        "Class I": "ClassI", "Class II": "ClassII", "Class III": "ClassIII",
+        "Class IV": "ClassIV", "Class V": "ClassV", "Class VI": "ClassVI",
       };
 
       if (!("vast_class" in state.vast_state)) {
-        vastClass = undefined; // not clearing the field
+        vastClass = undefined;
       }
 
-      // only map if it's provided and not null
       if (state.vast_state.vast_class) {
         vastClass = vastClassMap[state.vast_state.vast_class];
         if (!vastClass) {
@@ -253,19 +227,13 @@ export async function upsertStates(client: Pick<PoolClient, 'query'>, stm_name: 
       }
 
       if (state.vast_state.vast_state_id) {
-        // --- UPDATE existing vast_state with dynamic fields ---
         await buildDynamicUpdate(
-          client,
-          "vast_states",
-          "id",
-          state.vast_state.vast_state_id,
+          client, "vast_states", "id", state.vast_state.vast_state_id,
           {
             vast_class: vastClass,
             vast_name: state.vast_state.vast_name,
             eks_overstorey_class: state.vast_state.eks_overstorey_class,
             eks_understorey_class: state.vast_state.eks_understorey_class,
-            // The following fields are not part of StateData type; include only if schema expects them
-            // vast_condition_lower / vast_condition_upper / eks_substate_condition_estimate are omitted intentionally
             eks_substate: state.vast_state.eks_substate,
             link: state.vast_state.link,
           });
@@ -273,7 +241,6 @@ export async function upsertStates(client: Pick<PoolClient, 'query'>, stm_name: 
         vastStateId = state.vast_state.vast_state_id;
 
       } else {
-        // --- INSERT new vast_state ---
         const vastResult = await client.query(
           `INSERT INTO vast_states (
             vast_class, vast_name, eks_overstorey_class, eks_understorey_class,
@@ -282,32 +249,20 @@ export async function upsertStates(client: Pick<PoolClient, 'query'>, stm_name: 
           ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
           RETURNING id`,
           [
-            vastClass,
-            state.vast_state.vast_name,
-            state.vast_state.eks_overstorey_class,
-            state.vast_state.eks_understorey_class,
-            // vast_condition_lower
-            undefined,
-            // vast_condition_upper
-            undefined,
-            // eks_substate_condition_estimate
-            undefined,
-            state.vast_state.eks_substate,
-            state.vast_state.link
+            vastClass, state.vast_state.vast_name, state.vast_state.eks_overstorey_class,
+            state.vast_state.eks_understorey_class, undefined, undefined, undefined,
+            state.vast_state.eks_substate, state.vast_state.link
           ]
         );
         vastStateId = vastResult.rows[0]?.id;
       }
     }
 
-    // 3.2 Upsert state
-    // ellictation_type must be one of the ENUM values in the database
     let elicitType = null;
     if (!("elicitation_type" in state)) {
-      elicitType = undefined; // not clearing the field
+      elicitType = undefined;
     }
     if (state.elicitation_type) {
-      // Normalize the elicitation_type to match ENUM values
       if (state.elicitation_type.toLowerCase() === 'pilot region') {
         elicitType = 'Pilot region';
       } else if (state.elicitation_type.toLowerCase() === 'neap estimate') {
@@ -316,46 +271,35 @@ export async function upsertStates(client: Pick<PoolClient, 'query'>, stm_name: 
         throw new Error(`Invalid elicitation_type: ${state.elicitation_type}`);
       }
     }
-    let stateId = state.state_id; // may be undefined for new states
+    let stateId = state.state_id;
     if (stateId) {
-      // --- UPDATE existing state ---
-      const existingStateId = state.state_id!; // safe due to if (stateId) guard
+      const existingStateId = state.state_id!;
 
       let nodeX: number | null | undefined;
       if (!Object.prototype.hasOwnProperty.call(state, 'node_x')) {
-        nodeX = undefined; // not clearing the field
+        nodeX = undefined;
       } else {
         nodeX = state.node_x ?? null;
       }
 
       let nodeY: number | null | undefined;
       if (!Object.prototype.hasOwnProperty.call(state, 'node_y')) {
-        nodeY = undefined; // not clearing the field
+        nodeY = undefined;
       } else {
         nodeY = state.node_y ?? null;
       }
 
       await buildDynamicUpdate(
-        client,
-        "states",
-        "id",
-        existingStateId,
+        client, "states", "id", existingStateId,
         {
-          stm_name: stm_name,
-          state_name: state.state_name,
-          vast_state_id: vastStateId,
+          stm_name, state_name: state.state_name, vast_state_id: vastStateId,
           eks_condition_estimate: state.eks_condition_estimate,
-          condition_lower: state.condition_lower,
-          condition_upper: state.condition_upper,
-          ellictation_type: elicitType,
-          node_x: nodeX,
-          node_y: nodeY,
+          condition_lower: state.condition_lower, condition_upper: state.condition_upper,
+          ellictation_type: elicitType, node_x: nodeX, node_y: nodeY,
         }
       );
 
-    }
-    else {
-      // --- INSERT new state ---
+    } else {
       const stateResult = await client.query(
         `INSERT INTO states (
           stm_name, state_name, vast_state_id, eks_condition_estimate,
@@ -365,68 +309,40 @@ export async function upsertStates(client: Pick<PoolClient, 'query'>, stm_name: 
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
         RETURNING id`,
         [
-          // state.id is serial in database, so don't insert it
-          stm_name,
-          state.state_name,
-          vastStateId,
-          state.eks_condition_estimate,
-          state.condition_lower,
-          state.condition_upper,
-          elicitType,
-          state.node_x ?? null,
-          state.node_y ?? null,
+          stm_name, state.state_name, vastStateId, state.eks_condition_estimate,
+          state.condition_lower, state.condition_upper, elicitType,
+          state.node_x ?? null, state.node_y ?? null,
         ]
       );
       stateId = stateResult.rows[0]?.id;
 
-      // Ensure we have a concrete number from here on
       if (stateId == null) {
         throw new Error("Upsert state failed: no id returned from database");
       }
     }
 
-    // Map frontend_state_id to real state_id
     if (state.frontend_state_id != null) {
       stateMap[state.frontend_state_id] = stateId;
     } else {
       stateMap[stateId] = stateId;
     }
 
-    // 3.3 Upsert state_attributes
-    // attributes need to be an array of objects with attribute_type, value, units
     if (state.attributes && Array.isArray(state.attributes)) {
       for (const attr of state.attributes) {
         if (attr.state_attribute_id) {
-          // --- UPDATE existing attribute with dynamic fields ---
           await buildDynamicUpdate(
-            client,
-            "state_attributes",
-            "id",
-            attr.state_attribute_id,
-            {
-              state_id: stateId,
-              attribute_type: attr.attribute_type, // must match the ENUM in the database
-              value: attr.value,
-              units: attr.units
-            }
+            client, "state_attributes", "id", attr.state_attribute_id,
+            { state_id: stateId, attribute_type: attr.attribute_type, value: attr.value, units: attr.units }
           );
         } else {
-          // --- INSERT new attribute ---
           await client.query(
             `INSERT INTO state_attributes (state_id, attribute_type, value, units)
-              VALUES ($1, $2, $3, $4)
-              --ON CONFLICT (id) DO NOTHING`,
-            [
-              stateId,
-              attr.attribute_type, // must match the ENUM in the database
-              attr.value,
-              attr.units
-            ]
+              VALUES ($1, $2, $3, $4)`,
+            [stateId, attr.attribute_type, attr.value, attr.units]
           );
         }
       }
     }
-
   }
 
   return stateMap;
@@ -436,19 +352,14 @@ export async function upsertStates(client: Pick<PoolClient, 'query'>, stm_name: 
 export async function upsertTransitions(client: Pick<PoolClient, 'query'>, stm_name: string, transitions: TransitionData[], stateMap: Record<number, number>): Promise<number[]> {
   const transitionIds: number[] = [];
   for (const transition of transitions) {
-    // There is notes field in the TransitionData type, but no such column in the database
-    // 4.1 Upsert transition
-    let transitionId = transition.id; // may be undefined for new transitions
+    let transitionId = transition.id;
 
     const startStateId = stateMap[transition.start_state_id] ? stateMap[transition.start_state_id] : transition.start_state_id;
     const endStateId = stateMap[transition.end_state_id] ? stateMap[transition.end_state_id] : transition.end_state_id;
 
     const hasOwn = (key: string) => Object.prototype.hasOwnProperty.call(transition, key);
     const anyDeltaInputProvided =
-      hasOwn('likelihood_25') ||
-      hasOwn('likelihood_100') ||
-      hasOwn('time_25') ||
-      hasOwn('time_100');
+      hasOwn('likelihood_25') || hasOwn('likelihood_100') || hasOwn('time_25') || hasOwn('time_100');
 
     const time100 = transition.time_100 ?? null;
     const time25 = transition.time_25 ?? null;
@@ -461,14 +372,10 @@ export async function upsertTransitions(client: Pick<PoolClient, 'query'>, stm_n
       let computedDeltaForUpdate: number | null = null;
       if (anyDeltaInputProvided) {
         const existingRes = await client.query<{
-          time_25: number | null;
-          time_100: number | null;
-          likelihood_25: number | null;
-          likelihood_100: number | null;
+          time_25: number | null; time_100: number | null;
+          likelihood_25: number | null; likelihood_100: number | null;
         }>(
-          `SELECT time_25, time_100, likelihood_25, likelihood_100
-           FROM transitions
-           WHERE id = $1`,
+          `SELECT time_25, time_100, likelihood_25, likelihood_100 FROM transitions WHERE id = $1`,
           [transitionId]
         );
         if (existingRes.rows.length === 0) {
@@ -476,45 +383,26 @@ export async function upsertTransitions(client: Pick<PoolClient, 'query'>, stm_n
         }
 
         const existing = existingRes.rows[0];
-
         const mergedTime25 = hasOwn('time_25') ? (transition.time_25 ?? null) : (existing.time_25 ?? null);
         const mergedTime100 = hasOwn('time_100') ? (transition.time_100 ?? null) : (existing.time_100 ?? null);
         const mergedLikelihood25 = hasOwn('likelihood_25') ? (transition.likelihood_25 ?? null) : (existing.likelihood_25 ?? null);
         const mergedLikelihood100 = hasOwn('likelihood_100') ? (transition.likelihood_100 ?? null) : (existing.likelihood_100 ?? null);
 
-        computedDeltaForUpdate = calcTransitionDelta(
-          mergedLikelihood25,
-          mergedLikelihood100,
-          mergedTime25,
-          mergedTime100
-        );
+        computedDeltaForUpdate = calcTransitionDelta(mergedLikelihood25, mergedLikelihood100, mergedTime25, mergedTime100);
       }
 
-      // --- UPDATE existing transition with dynamic fields ---
       await buildDynamicUpdate(
-        client,
-        "transitions",
-        "id",
-        transitionId,
+        client, "transitions", "id", transitionId,
         {
-          stm_name: stm_name,
-          start_state_id: startStateId,  // start_state_id and end_state_id must exist in states table 
-          end_state_id: endStateId,
-          transition_id: transition.transition_id,   // is not the id of the transition, Links to the Australianeco_arche type and MVG cross walk.
-          time_100: transition.time_100,
-          time_25: transition.time_25,
-          likelihood_25: transition.likelihood_25,
-          likelihood_100: transition.likelihood_100,
-          // Recompute server-side whenever any input changes, using payload merged with existing DB values.
-          transition_delta: anyDeltaInputProvided ? computedDeltaForUpdate : undefined
+          stm_name, start_state_id: startStateId, end_state_id: endStateId,
+          transition_id: transition.transition_id,
+          time_100: transition.time_100, time_25: transition.time_25,
+          likelihood_25: transition.likelihood_25, likelihood_100: transition.likelihood_100,
+          transition_delta: anyDeltaInputProvided ? computedDeltaForUpdate : undefined,
         }
       );
 
     } else {
-      // --- INSERT or UPSERT transition ---
-      // When transition_id is provided, use ON CONFLICT to update if a row
-      // with the same (stm_name, transition_id) already exists (e.g. re-saving
-      // a model whose transitions were previously persisted).
       const hasBusinessId = transition.transition_id != null;
 
       const transitionResult = hasBusinessId
@@ -533,17 +421,7 @@ export async function upsertTransitions(client: Pick<PoolClient, 'query'>, stm_n
               likelihood_100   = EXCLUDED.likelihood_100,
               transition_delta = EXCLUDED.transition_delta
             RETURNING id`,
-            [
-              stm_name,
-              startStateId,
-              endStateId,
-              transition.transition_id,
-              time100,
-              time25,
-              likelihood25,
-              likelihood100,
-              computedDelta
-            ]
+            [stm_name, startStateId, endStateId, transition.transition_id, time100, time25, likelihood25, likelihood100, computedDelta]
           )
         : await client.query(
             `INSERT INTO transitions (
@@ -552,120 +430,66 @@ export async function upsertTransitions(client: Pick<PoolClient, 'query'>, stm_n
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             RETURNING id`,
-            [
-              stm_name,
-              startStateId,
-              endStateId,
-              transition.transition_id,
-              time100,
-              time25,
-              likelihood25,
-              likelihood100,
-              computedDelta
-            ]
+            [stm_name, startStateId, endStateId, transition.transition_id, time100, time25, likelihood25, likelihood100, computedDelta]
           );
 
       transitionId = transitionResult.rows[0].id;
       if (typeof transitionId === 'number') transitionIds.push(transitionId);
     }
 
-    // 4.2 Upsert causal_chain & drivers
     for (const chain of transition.causal_chain || []) {
-      // 4.2.1 Upsert causal_chain
-      let chainId = chain.causal_chain_id // may be undefined for new causal_chain
-      // normalize chain_part to match ENUM in the database
+      let chainId = chain.causal_chain_id;
       const chainPartMap: Record<string, string> = {
         "management intervention": "Management Intervention",
         "favorable abiotic factor": "Favorable abiotic factor",
         "favourable abiotic factor": "Favorable abiotic factor",
         "biotic process": "Biotic process",
-        "hazard": "Hazard"
+        "hazard": "Hazard",
       };
-      // Normalize/validate chain_part and make its type explicit
       let chainPart: string | null | undefined;
       if (!('chain_part' in chain)) {
-        // property not provided -> skip updating this column
         chainPart = undefined;
       } else if (chain.chain_part === null) {
-        // property provided explicitly as null -> clear the column
         chainPart = null;
       } else if (typeof chain.chain_part === 'string' && chain.chain_part.trim() !== '') {
-        // safe to call .toLowerCase() because of typeof check
         const mapped = chainPartMap[chain.chain_part.toLowerCase()];
-        if (!mapped) {
-          throw new Error(`Invalid chain_part: ${chain.chain_part}`);
-        }
+        if (!mapped) throw new Error(`Invalid chain_part: ${chain.chain_part}`);
         chainPart = mapped;
       } else {
-        // provided but empty string -> treat as explicit clear
         chainPart = null;
       }
 
       if (chainId) {
-        // --- UPDATE existing causal_chain with dynamic fields ---
         await buildDynamicUpdate(
-          client,
-          "causal_chain",
-          "id",
-          chainId,
-          {
-            transition_id: transitionId,
-            name: chain.name,
-            chain_part: chainPart,
-          }
+          client, "causal_chain", "id", chainId,
+          { transition_id: transitionId, name: chain.name, chain_part: chainPart }
         );
       } else {
         const chainResult = await client.query(
-          `INSERT INTO causal_chain (transition_id, name, chain_part)
-          VALUES ($1, $2, $3)
-          RETURNING id`,
-          [
-            transitionId,
-            chain.name,
-            chainPart,
-          ]
+          `INSERT INTO causal_chain (transition_id, name, chain_part) VALUES ($1, $2, $3) RETURNING id`,
+          [transitionId, chain.name, chainPart]
         );
         chainId = chainResult.rows[0]?.id;
       }
 
-      // 4.2.1 Upsert drivers
       const driverIds: number[] = [];
       for (const driver of chain.drivers || []) {
-        let driverId = driver.driver_id;  // may be undefined for new drivers
+        let driverId = driver.driver_id;
         if (driverId) {
-          // --- UPDATE existing driver with dynamic fields ---
           await buildDynamicUpdate(
-            client,
-            "drivers",
-            "id",
-            driverId,
-            {
-              driver: driver.driver,
-              description: driver.description,
-              driver_group: driver.driver_group
-            }
+            client, "drivers", "id", driverId,
+            { driver: driver.driver, description: driver.description, driver_group: driver.driver_group }
           );
         } else {
-          // --- INSERT new driver ---
           const driverResult = await client.query(
-            `INSERT INTO drivers (driver, description, driver_group)
-            VALUES ($1, $2, $3)
-            RETURNING id`,
-            [
-              driver.driver,
-              driver.description,
-              driver.driver_group
-            ]
+            `INSERT INTO drivers (driver, description, driver_group) VALUES ($1, $2, $3) RETURNING id`,
+            [driver.driver, driver.description, driver.driver_group]
           );
           driverId = driverResult.rows[0].id;
           if (typeof driverId === 'number') driverIds.push(driverId);
         }
 
-        // 4.2.3 update chain_drivers junction table
-        // get existing ids for this chain_driver
         let chain_driver_Id: number | null = null;
-        // Await the query result first, then inspect rows. Avoid chaining .then on the
-        // returned value because in tests the mock may return undefined for extra calls.
         const chainDriverRes = await client.query(
           `SELECT id FROM chain_driver WHERE causal_chain_id = $1 and driver_id = $2`,
           [chainId, driverId]
@@ -676,26 +500,30 @@ export async function upsertTransitions(client: Pick<PoolClient, 'query'>, stm_n
           chain_driver_Id = null;
         }
 
-        // if not exist, insert new record
         if (!chain_driver_Id) {
           await client.query(
-            `INSERT INTO chain_driver (causal_chain_id, driver_id)
-            VALUES ($1, $2)
-            RETURNING id`,
+            `INSERT INTO chain_driver (causal_chain_id, driver_id) VALUES ($1, $2) RETURNING id`,
             [chainId, driverId]
           );
         }
       }
-
     }
-
   }
 
   return transitionIds;
 }
 
-// Save a new model
-export async function saveModel(modelData: BMRGData) {
+// Save a new model or update an existing one.
+// creatorEmail is required for new models (auto-grants owner row); ignored for updates.
+export async function saveModel(modelData: BMRGData, creatorEmail?: string) {
+  if (!modelData.id) {
+    // Guard before any DB interaction: protect reserved template names.
+    const stmNameToCheck = typeof modelData.stm_name === 'string' ? modelData.stm_name.trim() : '';
+    if (PROTECTED_TEMPLATE_NAMES.includes(stmNameToCheck)) {
+      throw new ConflictError('This name is reserved for a system template and cannot be used');
+    }
+  }
+
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -710,9 +538,11 @@ export async function saveModel(modelData: BMRGData) {
       await assertModelUnlocked(stmName, client);
     }
 
+    const isNewModel = !modelData.id;
+
     // 1. Upsert main model
-    const modelId = await upsertModelMetadata(client, modelData);
-    // If stm_name not provided in modelData, fetch it from the database using modelId
+    const modelId = await upsertModelMetadata(client, modelData, isNewModel ? creatorEmail : undefined);
+
     if (!stmName) {
       const res = await client.query(
         `SELECT stm_name FROM stmmodel WHERE id = $1`,
@@ -738,13 +568,15 @@ export async function saveModel(modelData: BMRGData) {
       await upsertTransitions(client, stmName, modelData.transitions, stateMap);
     }
 
-    // // 5. Save method_alignment（it's "None" and it don't insert for now)
-    // if (modelData.method_alignment && modelData.method_alignment!== "None") {
-    //     // will implement later
-    //     console.log("method_alignment to be implemented:", modelData.method_alignment);
-    // } else {
-    //   console.log("No method_alignment provided or it's 'None'");
-    // }
+    // 5. Auto-grant owner row on new model creation (inside the same transaction).
+    if (isNewModel && creatorEmail) {
+      await client.query(
+        `INSERT INTO model_permissions (stm_name, user_email, role, granted_by, granted_at)
+         VALUES ($1, $2, 'owner', $2, NOW())
+         ON CONFLICT (stm_name, user_email) DO NOTHING`,
+        [stmName, creatorEmail]
+      );
+    }
 
     await client.query('COMMIT');
     return { modelId };
@@ -760,7 +592,8 @@ export async function saveModel(modelData: BMRGData) {
   }
 }
 
-// Flag/unflag a model as a template (Admin or model owner only)
+// Flag/unflag a model as a template (Admin or model owner only).
+// @deprecated — PATCH /models/:name/template route has been removed.
 export async function flagAsTemplate(stmName: string, flag: boolean, userRole: string, userEmail: string): Promise<void> {
   const client = await pool.connect();
   try {
@@ -792,8 +625,18 @@ export async function flagAsTemplate(stmName: string, flag: boolean, userRole: s
   }
 }
 
-// Clone a template into a new model owned by the requesting user
-export async function cloneFromTemplate(templateName: string, newModelName: string, contributorId: number | null, userEmail?: string): Promise<{ modelId: number; stm_name: string }> {
+// Clone a template into a new model owned by the requesting user.
+export async function cloneFromTemplate(
+  templateName: string,
+  newModelName: string,
+  contributorId: number | null,
+  userEmail?: string,
+): Promise<{ modelId: number; stm_name: string }> {
+  // Guard before any DB interaction: protect reserved template names for new model name.
+  if (PROTECTED_TEMPLATE_NAMES.includes(newModelName.trim())) {
+    throw new ConflictError('This name is reserved for a system template and cannot be used');
+  }
+
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -813,11 +656,8 @@ export async function cloneFromTemplate(templateName: string, newModelName: stri
 
     const template = templateRes.rows[0];
 
-    // 1.1 Validate region_id if present (always check for test consistency)
-    const regionCheck = await client.query(
-      'SELECT id FROM regions WHERE id = $1',
-      [template.region_id]
-    );
+    // 1.1 Validate region_id if present
+    const regionCheck = await client.query('SELECT id FROM regions WHERE id = $1', [template.region_id]);
     if (template.region_id && regionCheck.rows.length === 0) {
       throw { status: 400, message: `Invalid region_id ${template.region_id}` };
     }
@@ -832,7 +672,7 @@ export async function cloneFromTemplate(templateName: string, newModelName: stri
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, FALSE)
        RETURNING id`,
       [
-        newModelName, template.version, template.release_date, template.authorised_by,
+        newModelName, template.version, template.release_date, userEmail ?? template.authorised_by,
         template.region, template.region_id, template.ecosystem_type,
         template.aus_eco_archetype_code, template.aus_eco_archetype_name,
         template.aus_eco_umbrella_code, template.peer_reviewed, template.no_peer_reviewers,
@@ -843,7 +683,6 @@ export async function cloneFromTemplate(templateName: string, newModelName: stri
     const newModelId = newModelRes.rows[0].id;
 
     // 2.1 Link the cloning user as the owner of the new model.
-    // If no contributor_id, look up or create a contributors row using the user's email.
     let resolvedContributorId = contributorId;
     if (resolvedContributorId === null && userEmail) {
       const email = userEmail.trim().toLowerCase();
@@ -869,7 +708,7 @@ export async function cloneFromTemplate(templateName: string, newModelName: stri
       );
     }
 
-    // 3. Copy all states using a single bulk unnest insert
+    // 3. Copy all states
     const statesRes = await client.query(
       `SELECT id, state_name, vast_state_id, eks_condition_estimate, condition_lower,
               condition_upper, ellictation_type, node_x, node_y
@@ -877,7 +716,7 @@ export async function cloneFromTemplate(templateName: string, newModelName: stri
       [templateName]
     );
 
-    const stateMap: Record<number, number> = {}; // old state_id -> new state_id
+    const stateMap: Record<number, number> = {};
 
     if (statesRes.rows.length > 0) {
       const bulkStateRes = await client.query(
@@ -886,23 +725,11 @@ export async function cloneFromTemplate(templateName: string, newModelName: stri
            condition_lower, condition_upper, ellictation_type, node_x, node_y
          )
          SELECT $1,
-                u.state_name,
-                u.vast_state_id,
-                u.eks_condition_estimate,
-                u.condition_lower,
-                u.condition_upper,
-                u.ellictation_type,
-                u.node_x,
-                u.node_y
+                u.state_name, u.vast_state_id, u.eks_condition_estimate,
+                u.condition_lower, u.condition_upper, u.ellictation_type, u.node_x, u.node_y
          FROM unnest(
-           $2::text[],
-           $3::int[],
-           $4::numeric[],
-           $5::numeric[],
-           $6::numeric[],
-           $7::text[],
-           $8::numeric[],
-           $9::numeric[]
+           $2::text[], $3::int[], $4::numeric[], $5::numeric[], $6::numeric[],
+           $7::text[], $8::numeric[], $9::numeric[]
          ) AS u(state_name, vast_state_id, eks_condition_estimate,
                 condition_lower, condition_upper, ellictation_type, node_x, node_y)
          RETURNING id`,
@@ -923,7 +750,7 @@ export async function cloneFromTemplate(templateName: string, newModelName: stri
       }
     }
 
-    // 4. Copy all transitions using a single bulk unnest insert
+    // 4. Copy all transitions
     const transitionsRes = await client.query(
       `SELECT id, start_state_id, end_state_id, time_25, time_100,
               likelihood_25, likelihood_100, transition_delta
@@ -931,7 +758,7 @@ export async function cloneFromTemplate(templateName: string, newModelName: stri
       [templateName]
     );
 
-    const transitionIdMap: Record<number, number> = {}; // old transition_id -> new transition_id
+    const transitionIdMap: Record<number, number> = {};
 
     if (transitionsRes.rows.length > 0) {
       for (const trans of transitionsRes.rows) {
@@ -946,21 +773,10 @@ export async function cloneFromTemplate(templateName: string, newModelName: stri
            likelihood_25, likelihood_100, transition_delta
          )
          SELECT $1,
-                u.start_state_id,
-                u.end_state_id,
-                u.time_25,
-                u.time_100,
-                u.likelihood_25,
-                u.likelihood_100,
-                u.transition_delta
+                u.start_state_id, u.end_state_id, u.time_25, u.time_100,
+                u.likelihood_25, u.likelihood_100, u.transition_delta
          FROM unnest(
-           $2::int[],
-           $3::int[],
-           $4::numeric[],
-           $5::numeric[],
-           $6::numeric[],
-           $7::numeric[],
-           $8::numeric[]
+           $2::int[], $3::int[], $4::numeric[], $5::numeric[], $6::numeric[], $7::numeric[], $8::numeric[]
          ) AS u(start_state_id, end_state_id, time_25, time_100, likelihood_25, likelihood_100, transition_delta)
          RETURNING id`,
         [
@@ -983,7 +799,6 @@ export async function cloneFromTemplate(templateName: string, newModelName: stri
     // 4.1 Copy causal chains and drivers per transition
     for (const trans of transitionsRes.rows) {
       const newTransId = transitionIdMap[trans.id];
-
       const chainsRes = await client.query(
         `SELECT id, name, chain_part FROM causal_chain WHERE transition_id = $1`,
         [trans.id]
@@ -991,9 +806,7 @@ export async function cloneFromTemplate(templateName: string, newModelName: stri
 
       for (const chain of chainsRes.rows) {
         const newChainRes = await client.query(
-          `INSERT INTO causal_chain (transition_id, name, chain_part)
-           VALUES ($1, $2, $3)
-           RETURNING id`,
+          `INSERT INTO causal_chain (transition_id, name, chain_part) VALUES ($1, $2, $3) RETURNING id`,
           [newTransId, chain.name, chain.chain_part]
         );
         const newChainId = newChainRes.rows[0].id;
@@ -1005,13 +818,21 @@ export async function cloneFromTemplate(templateName: string, newModelName: stri
 
         for (const driver of driversRes.rows) {
           await client.query(
-            `INSERT INTO chain_driver (causal_chain_id, driver_id)
-             VALUES ($1, $2)
-             ON CONFLICT DO NOTHING`,
+            `INSERT INTO chain_driver (causal_chain_id, driver_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
             [newChainId, driver.driver_id]
           );
         }
       }
+    }
+
+    // 5. Auto-grant owner row for the cloning user (inside the same transaction).
+    if (userEmail) {
+      await client.query(
+        `INSERT INTO model_permissions (stm_name, user_email, role, granted_by, granted_at)
+         VALUES ($1, $2, 'owner', $2, NOW())
+         ON CONFLICT (stm_name, user_email) DO NOTHING`,
+        [newModelName, userEmail]
+      );
     }
 
     await client.query('COMMIT');
