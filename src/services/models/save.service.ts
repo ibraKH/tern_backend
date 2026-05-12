@@ -729,7 +729,7 @@ export async function cloneFromTemplate(
                 u.condition_lower, u.condition_upper, u.ellictation_type, u.node_x, u.node_y
          FROM unnest(
            $2::text[], $3::int[], $4::numeric[], $5::numeric[], $6::numeric[],
-           $7::text[], $8::numeric[], $9::numeric[]
+           $7::elicatation_type[], $8::numeric[], $9::numeric[]
          ) AS u(state_name, vast_state_id, eks_condition_estimate,
                 condition_lower, condition_upper, ellictation_type, node_x, node_y)
          RETURNING id`,
