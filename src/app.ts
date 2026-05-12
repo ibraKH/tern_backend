@@ -22,6 +22,20 @@ const app = express();
 
 app.use(requestId);
 
+export function normalizeCorsOrigin(value: string | undefined): string | null {
+  if (!value) return null;
+
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  try {
+    const url = new URL(trimmed);
+    return url.origin;
+  } catch {
+    return trimmed.replace(/\/+$/, '');
+  }
+}
+
 // Security headers with Helmet
 app.use(helmet({
   contentSecurityPolicy: {
@@ -45,18 +59,20 @@ app.use(helmet({
   referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
 }));
 
-const allowedOrigins = [
-  process.env.FRONTEND_URL || 'https://stm-8nizc.ondigitalocean.app',
-  process.env.PRODUCTION_URL || 'https://hammerhead-app-t8l9y.ondigitalocean.app',
+const allowedOrigins = new Set([
+  process.env.FRONTEND_URL,
+  process.env.PRODUCTION_URL,
+  'https://stm-8nizc.ondigitalocean.app',
+  'https://hammerhead-app-t8l9y.ondigitalocean.app',
   'http://localhost:5173', // dev frontend
   'http://localhost:3000', // dev backend
-];
+].map(normalizeCorsOrigin).filter((origin): origin is string => Boolean(origin)));
 
 app.use(cors({
   origin: (origin, callback) => {    
     if (!origin) return callback(null, true);
     
-    if (allowedOrigins.includes(origin)) {
+    if (allowedOrigins.has(normalizeCorsOrigin(origin) ?? origin)) {
       callback(null, true);
     } else {
       callback(new Error('Not allowed by CORS'));
