@@ -35,6 +35,14 @@ export function normalizeReleaseDate(release_date?: string): string | null {
   return normalizedReleaseDate;
 }
 
+export function normalizeOptionalForeignKey(value: unknown): string | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+
+  const normalized = String(value).trim();
+  return normalized === '' ? null : normalized;
+}
+
 // Build dynamic UPDATE query helper
 export async function buildDynamicUpdate<IdT extends number | string>(
   client: Pick<PoolClient, 'query'>,
@@ -98,6 +106,7 @@ export async function upsertModelMetadata(
     no_peer_reviewers,
   } = modelData;
   const normalizedReleaseDate = normalizeReleaseDate(release_date);
+  const normalizedArchetypeCode = normalizeOptionalForeignKey(aus_eco_archetype_code);
   let modelResult;
 
   if (id) {
@@ -110,7 +119,7 @@ export async function upsertModelMetadata(
       region,
       region_id,
       ecosystem_type,
-      aus_eco_archetype_code: aus_eco_archetype_code !== undefined ? String(aus_eco_archetype_code) : undefined,
+      aus_eco_archetype_code: normalizedArchetypeCode,
       aus_eco_archetype_name,
       aus_eco_umbrella_code,
       peer_reviewed,
@@ -140,7 +149,7 @@ export async function upsertModelMetadata(
           RETURNING id`,
         [
           stm_name, version, normalizedReleaseDate, serverAuthorisedBy, region, region_id, ecosystem_type,
-          aus_eco_archetype_code, aus_eco_archetype_name, aus_eco_umbrella_code, peer_reviewed, no_peer_reviewers, climate
+          normalizedArchetypeCode, aus_eco_archetype_name, aus_eco_umbrella_code, peer_reviewed, no_peer_reviewers, climate
         ]
       );
     } catch (err: unknown) {

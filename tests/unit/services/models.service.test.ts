@@ -1,4 +1,4 @@
-import { normalizeReleaseDate, buildDynamicUpdate, upsertModelMetadata, upsertContributors, upsertStates, upsertTransitions } from "../../../src/services/models/save.service";
+import { normalizeReleaseDate, normalizeOptionalForeignKey, buildDynamicUpdate, upsertModelMetadata, upsertContributors, upsertStates, upsertTransitions } from "../../../src/services/models/save.service";
 import pool from "../../../src/config/database";
 import { getAllModels, getModelByName } from "../../../src/services/models/show.service";
 import type { Contributor, BMRGData, StateData, TransitionData, CausalChain, ChainDriver } from "../../../src/types/models.types";
@@ -38,6 +38,23 @@ describe('normalizeReleaseDate', () => {
 
     it('should throw error for invalid format', () => {
         expect(() => normalizeReleaseDate("NotADate")).toThrow("Invalid release_date format");
+    });
+});
+
+describe('normalizeOptionalForeignKey', () => {
+    it('should preserve undefined so partial updates can skip the field', () => {
+        expect(normalizeOptionalForeignKey(undefined)).toBeUndefined();
+    });
+
+    it('should normalize null and blank values to null', () => {
+        expect(normalizeOptionalForeignKey(null)).toBeNull();
+        expect(normalizeOptionalForeignKey('')).toBeNull();
+        expect(normalizeOptionalForeignKey('   ')).toBeNull();
+    });
+
+    it('should normalize non-empty values to trimmed strings', () => {
+        expect(normalizeOptionalForeignKey(12)).toBe('12');
+        expect(normalizeOptionalForeignKey(' ARC1 ')).toBe('ARC1');
     });
 });
 
@@ -136,6 +153,36 @@ describe('upsertModelMetadata', () => {
 
         const modelId = await upsertModelMetadata(mockClient, modelData as BMRGData);
         expect(modelId).toBe(23);
+    });
+
+    it('should save blank archetype code as null on insert', async () => {
+        mockClient.query.mockResolvedValueOnce({ rows: [{ id: 42 }] });
+
+        const modelData = {
+          stm_name: "Cloned Grasslands",
+          version: "v1",
+          release_date: "2024-09-29",
+          authorised_by: "A",
+          region: "R",
+          region_id: 0,
+          climate: "C",
+          ecosystem_type: "Grasslands",
+          aus_eco_archetype_code: "",
+          aus_eco_archetype_name: "",
+          aus_eco_umbrella_code: 1,
+          peer_reviewed: "No",
+          no_peer_reviewers: 0,
+          contributing_experts: [],
+          states: [],
+          transitions: []
+        };
+
+        await upsertModelMetadata(mockClient, modelData as unknown as BMRGData);
+
+        expect(mockClient.query).toHaveBeenCalledWith(
+          expect.stringContaining("INSERT INTO stmmodel"),
+          expect.arrayContaining([null])
+        );
     });
 
   it('should throw conflict error if unique violation', async () => {
