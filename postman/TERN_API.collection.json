@@ -1,29 +1,119 @@
 {
   "info": {
-    "name": "TERN API — Production",
+    "name": "TERN API — Complete",
+    "description": "Full TERN API test suite — 81 requests across 10 folders. Run folders top-to-bottom in collection runner order: Auth → Models → Permissions → Collab → Locks → Drivers → Notifications → Admin → STM Templates → RBAC Matrix. Requests that depend on earlier steps are automatically skipped when the prerequisite environment variable is not set.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
-    { "key": "baseUrl", "value": "{{baseUrl}}" },
-    { "key": "accessToken", "value": "" },
-    { "key": "refreshToken", "value": "" },
-    { "key": "testModelId", "value": "" },
-    { "key": "testRoomId", "value": "" },
-    { "key": "testUserId", "value": "" }
+    {
+      "key": "baseUrl",
+      "value": "{{baseUrl}}",
+      "description": "Set in the active environment file (e.g. http://localhost:3000)"
+    },
+    {
+      "key": "accessToken",
+      "value": "",
+      "description": "Auto-set by Login (Admin)"
+    },
+    {
+      "key": "editorAccessToken",
+      "value": "",
+      "description": "Auto-set by Login Editor"
+    },
+    {
+      "key": "viewerAccessToken",
+      "value": "",
+      "description": "Auto-set by Login Viewer"
+    },
+    {
+      "key": "verificationToken",
+      "value": "",
+      "description": "MANUAL: copy the token query param from the verification email link before running Verify Email"
+    },
+    {
+      "key": "testModelId",
+      "value": "",
+      "description": "Auto-set by Save Model"
+    },
+    {
+      "key": "testModelName",
+      "value": "Woodlands",
+      "description": "Existing seed model used for read operations"
+    },
+    {
+      "key": "testNewModelName",
+      "value": "Test Model - Postman",
+      "description": "Name of the model created by Save Model and deleted by Delete Model"
+    },
+    {
+      "key": "testUserId",
+      "value": "",
+      "description": "Auto-set by Login (Admin)"
+    },
+    {
+      "key": "testCommentId",
+      "value": "",
+      "description": "Auto-set by Post Comment"
+    },
+    {
+      "key": "testLockId",
+      "value": "",
+      "description": "Auto-set by Acquire Lock"
+    },
+    {
+      "key": "testMilestoneId",
+      "value": "",
+      "description": "Auto-set by Create Milestone"
+    },
+    {
+      "key": "testStateId",
+      "value": "",
+      "description": "MANUAL: a state_id from GET /models/:name response (states[n].state_id)"
+    },
+    {
+      "key": "testTransitionId",
+      "value": "",
+      "description": "MANUAL: a transition id from GET /models/:name response (transitions[n].id)"
+    },
+    {
+      "key": "testDeleteUserId",
+      "value": "",
+      "description": "MANUAL: a non-admin user ID for Delete User / Revoke Sessions tests"
+    },
+    {
+      "key": "reviewerCommentId",
+      "value": "",
+      "description": "Auto-set by [Reviewer] Can post comment in RBAC Matrix; auto-deleted in [Cleanup]"
+    },
+    {
+      "key": "rbacCommentId",
+      "value": "",
+      "description": "Auto-set by [Admin] Can post comment in RBAC Matrix; auto-deleted in [Cleanup]"
+    },
+    {
+      "key": "rbacMilestoneId",
+      "value": "",
+      "description": "Auto-set by [Admin] Can create milestone in RBAC Matrix; auto-deleted in [Cleanup]"
+    }
   ],
   "item": [
     {
       "name": "Auth",
       "item": [
         {
-          "name": "GET Health",
+          "name": "Health Check",
           "request": {
             "method": "GET",
             "header": [],
             "url": {
               "raw": "{{baseUrl}}/auth/health",
-              "host": ["{{baseUrl}}"],
-              "path": ["auth", "health"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "health"
+              ]
             }
           },
           "event": [
@@ -32,9 +122,8 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"Status is 200\", function() {",
-                  "  pm.response.to.have.status(200);",
-                  "});"
+                  "pm.test('Status is 200', function() { pm.response.to.have.status(200); });",
+                  "pm.test('Service healthy', function() { pm.expect(pm.response.json().status).to.include('healthy'); });"
                 ]
               }
             }
@@ -42,10 +131,14 @@
         },
         {
           "name": "Register",
+          "description": "Returns 201 on first run, 409 on repeat runs (email already registered). Both are accepted.",
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Content-Type", "value": "application/json" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
             ],
             "body": {
               "mode": "raw",
@@ -53,8 +146,13 @@
             },
             "url": {
               "raw": "{{baseUrl}}/auth/signup",
-              "host": ["{{baseUrl}}"],
-              "path": ["auth", "signup"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "signup"
+              ]
             }
           },
           "event": [
@@ -63,13 +161,12 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"Status is 201\", function() {",
-                  "  pm.response.to.have.status(201);",
+                  "pm.test('Status is 201 (created) or 409 (already exists)', function() {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([201, 409]);",
                   "});",
-                  "pm.test(\"Body has message\", function() {",
-                  "  const json = pm.response.json();",
-                  "  pm.expect(json).to.have.property(\"message\");",
-                  "});"
+                  "if (pm.response.code === 201) {",
+                  "  pm.test('Has message', function() { pm.expect(pm.response.json()).to.have.property('message'); });",
+                  "}"
                 ]
               }
             }
@@ -77,10 +174,14 @@
         },
         {
           "name": "Verify Email",
+          "description": "MANUAL STEP: set verificationToken collection variable to the token from the verification email link before running. Skipped automatically when verificationToken is not set.",
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Content-Type", "value": "application/json" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
             ],
             "body": {
               "mode": "raw",
@@ -88,23 +189,37 @@
             },
             "url": {
               "raw": "{{baseUrl}}/auth/verify",
-              "host": ["{{baseUrl}}"],
-              "path": ["auth", "verify"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "verify"
+              ]
             }
           },
           "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get('verificationToken') && !pm.variables.get('verificationToken')) {",
+                  "  pm.execution.skipRequest();",
+                  "}"
+                ]
+              }
+            },
             {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"Status is 200\", function() {",
-                  "  pm.response.to.have.status(200);",
-                  "});",
+                  "pm.test('Status is 200', function() { pm.response.to.have.status(200); });",
+                  "pm.test('Has token', function() { pm.expect(pm.response.json()).to.have.property('token'); });",
+                  "pm.test('Has user', function() { pm.expect(pm.response.json()).to.have.property('user'); });",
                   "const json = pm.response.json();",
-                  "if (json.token) {",
-                  "  pm.environment.set(\"accessToken\", json.token);",
-                  "}"
+                  "if (json.token) pm.environment.set('accessToken', json.token);"
                 ]
               }
             }
@@ -115,7 +230,10 @@
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Content-Type", "value": "application/json" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
             ],
             "body": {
               "mode": "raw",
@@ -123,8 +241,13 @@
             },
             "url": {
               "raw": "{{baseUrl}}/auth/resend-verification",
-              "host": ["{{baseUrl}}"],
-              "path": ["auth", "resend-verification"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "resend-verification"
+              ]
             }
           },
           "event": [
@@ -133,9 +256,8 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"Status is 200\", function() {",
-                  "  pm.response.to.have.status(200);",
-                  "});"
+                  "pm.test('Status is 200', function() { pm.response.to.have.status(200); });",
+                  "pm.test('Has generic message', function() { pm.expect(pm.response.json()).to.have.property('message'); });"
                 ]
               }
             }
@@ -146,7 +268,10 @@
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Content-Type", "value": "application/json" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
             ],
             "body": {
               "mode": "raw",
@@ -154,8 +279,13 @@
             },
             "url": {
               "raw": "{{baseUrl}}/auth/login",
-              "host": ["{{baseUrl}}"],
-              "path": ["auth", "login"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
             }
           },
           "event": [
@@ -164,21 +294,14 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"Status is 200\", function() {",
-                  "  pm.response.to.have.status(200);",
-                  "});",
+                  "pm.test('Status is 200', function() { pm.response.to.have.status(200); });",
+                  "pm.test('Response time under 500ms', function() { pm.expect(pm.response.responseTime).to.be.below(500); });",
                   "const json = pm.response.json();",
-                  "pm.environment.set(\"accessToken\", json.token);",
-                  "if (json.user) pm.environment.set(\"testUserId\", json.user.id);",
-                  "pm.test(\"Response time under 500ms\", function() {",
-                  "  pm.expect(pm.response.responseTime).to.be.below(500);",
-                  "});",
-                  "pm.test(\"Response has token\", function() {",
-                  "  pm.expect(json).to.have.property(\"token\");",
-                  "});",
-                  "pm.test(\"Response has user\", function() {",
-                  "  pm.expect(json).to.have.property(\"user\");",
-                  "});"
+                  "pm.test('Has token', function() { pm.expect(json).to.have.property('token'); });",
+                  "pm.test('Has user', function() { pm.expect(json).to.have.property('user'); });",
+                  "pm.test('Has pendingMentionCount', function() { pm.expect(json).to.have.property('pendingMentionCount'); });",
+                  "if (json.token) pm.environment.set('accessToken', json.token);",
+                  "if (json.user) pm.environment.set('testUserId', json.user.id);"
                 ]
               }
             }
@@ -189,7 +312,10 @@
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Content-Type", "value": "application/json" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
             ],
             "body": {
               "mode": "raw",
@@ -197,8 +323,13 @@
             },
             "url": {
               "raw": "{{baseUrl}}/auth/login",
-              "host": ["{{baseUrl}}"],
-              "path": ["auth", "login"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
             }
           },
           "event": [
@@ -207,11 +338,9 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"Status is 200\", function() {",
-                  "  pm.response.to.have.status(200);",
-                  "});",
+                  "pm.test('Status is 200', function() { pm.response.to.have.status(200); });",
                   "const json = pm.response.json();",
-                  "if (json.token) pm.environment.set(\"editorAccessToken\", json.token);"
+                  "if (json.token) pm.environment.set('editorAccessToken', json.token);"
                 ]
               }
             }
@@ -222,7 +351,10 @@
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Content-Type", "value": "application/json" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
             ],
             "body": {
               "mode": "raw",
@@ -230,8 +362,13 @@
             },
             "url": {
               "raw": "{{baseUrl}}/auth/login",
-              "host": ["{{baseUrl}}"],
-              "path": ["auth", "login"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
             }
           },
           "event": [
@@ -240,11 +377,9 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"Status is 200\", function() {",
-                  "  pm.response.to.have.status(200);",
-                  "});",
+                  "pm.test('Status is 200', function() { pm.response.to.have.status(200); });",
                   "const json = pm.response.json();",
-                  "if (json.token) pm.environment.set(\"viewerAccessToken\", json.token);"
+                  "if (json.token) pm.environment.set('viewerAccessToken', json.token);"
                 ]
               }
             }
@@ -260,12 +395,20 @@
           "request": {
             "method": "GET",
             "header": [
-              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
             ],
             "url": {
               "raw": "{{baseUrl}}/models/health",
-              "host": ["{{baseUrl}}"],
-              "path": ["models", "health"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "models",
+                "health"
+              ]
             }
           },
           "event": [
@@ -274,9 +417,7 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"Status is 200\", function() {",
-                  "  pm.response.to.have.status(200);",
-                  "});"
+                  "pm.test('Status is 200', function() { pm.response.to.have.status(200); });"
                 ]
               }
             }
@@ -287,12 +428,20 @@
           "request": {
             "method": "GET",
             "header": [
-              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
             ],
             "url": {
               "raw": "{{baseUrl}}/models/all",
-              "host": ["{{baseUrl}}"],
-              "path": ["models", "all"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "models",
+                "all"
+              ]
             }
           },
           "event": [
@@ -301,12 +450,43 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"Status is 200\", function() {",
-                  "  pm.response.to.have.status(200);",
-                  "});",
-                  "pm.test(\"Body is array\", function() {",
-                  "  pm.expect(pm.response.json()).to.be.an(\"array\");",
-                  "});"
+                  "pm.test('Status is 200', function() { pm.response.to.have.status(200); });",
+                  "pm.test('Body is array', function() { pm.expect(pm.response.json()).to.be.an('array'); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List Assigned",
+          "description": "Returns all models the requesting user has a model-level role on, along with their role. Response: { models: [...] }.",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/models/assigned",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "models",
+                "assigned"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', function() { pm.response.to.have.status(200); });",
+                  "pm.test('Has models array', function() { pm.expect(pm.response.json()).to.have.property('models').that.is.an('array'); });"
                 ]
               }
             }
@@ -317,12 +497,20 @@
           "request": {
             "method": "GET",
             "header": [
-              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
             ],
             "url": {
               "raw": "{{baseUrl}}/models/templates",
-              "host": ["{{baseUrl}}"],
-              "path": ["models", "templates"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "models",
+                "templates"
+              ]
             }
           },
           "event": [
@@ -331,12 +519,8 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"Status is 200\", function() {",
-                  "  pm.response.to.have.status(200);",
-                  "});",
-                  "pm.test(\"Body is array\", function() {",
-                  "  pm.expect(pm.response.json()).to.be.an(\"array\");",
-                  "});"
+                  "pm.test('Status is 200', function() { pm.response.to.have.status(200); });",
+                  "pm.test('Body is array', function() { pm.expect(pm.response.json()).to.be.an('array'); });"
                 ]
               }
             }
@@ -347,12 +531,20 @@
           "request": {
             "method": "GET",
             "header": [
-              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
             ],
             "url": {
               "raw": "{{baseUrl}}/models/{{testModelName}}",
-              "host": ["{{baseUrl}}"],
-              "path": ["models", "{{testModelName}}"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "models",
+                "{{testModelName}}"
+              ]
             }
           },
           "event": [
@@ -361,9 +553,11 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"Status is 200 or 404\", function() {",
-                  "  pm.expect(pm.response.code).to.be.oneOf([200, 404]);",
-                  "});"
+                  "pm.test('Status is 200', function() { pm.response.to.have.status(200); });",
+                  "const json = pm.response.json();",
+                  "pm.test('Has stm_name', function() { pm.expect(json).to.have.property('stm_name'); });",
+                  "pm.test('Has states array', function() { pm.expect(json).to.have.property('states').that.is.an('array'); });",
+                  "pm.test('Has transitions array', function() { pm.expect(json).to.have.property('transitions').that.is.an('array'); });"
                 ]
               }
             }
@@ -371,20 +565,32 @@
         },
         {
           "name": "Save Model",
+          "description": "Creates or updates a model. Response: { success: true, modelId: N }. Requires global Editor or Admin AND model-level editor role (Admin bypasses model role check).",
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Authorization", "value": "Bearer {{accessToken}}" },
-              { "key": "Content-Type", "value": "application/json" }
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\"stm_name\":\"Test Model {{$timestamp}}\",\"version\":\"1.0\",\"states\":[],\"transitions\":[]}"
+              "raw": "{\"stm_name\":\"{{testNewModelName}}\",\"version\":\"1.0\",\"states\":[],\"transitions\":[]}"
             },
             "url": {
               "raw": "{{baseUrl}}/models/save",
-              "host": ["{{baseUrl}}"],
-              "path": ["models", "save"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "models",
+                "save"
+              ]
             }
           },
           "event": [
@@ -393,12 +599,11 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"Status is 201\", function() {",
-                  "  pm.response.to.have.status(201);",
-                  "});",
+                  "pm.test('Status is 201', function() { pm.response.to.have.status(201); });",
                   "const json = pm.response.json();",
-                  "if (json.id) pm.environment.set(\"testModelId\", json.id);",
-                  "else if (json.model && json.model.id) pm.environment.set(\"testModelId\", json.model.id);"
+                  "pm.test('Success is true', function() { pm.expect(json.success).to.be.true; });",
+                  "pm.test('Has modelId', function() { pm.expect(json).to.have.property('modelId'); });",
+                  "if (json.modelId) pm.environment.set('testModelId', json.modelId);"
                 ]
               }
             }
@@ -406,20 +611,33 @@
         },
         {
           "name": "Clone From Template",
+          "description": "Response: { success: true, modelId: N, stm_name: '...' }. Requires global Admin or Editor role.",
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Authorization", "value": "Bearer {{accessToken}}" },
-              { "key": "Content-Type", "value": "application/json" }
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\"new_name\":\"Cloned Woodlands {{$timestamp}}\"}"
+              "raw": "{\"new_name\":\"Cloned Woodlands - Postman\"}"
             },
             "url": {
               "raw": "{{baseUrl}}/models/from-template/Woodlands",
-              "host": ["{{baseUrl}}"],
-              "path": ["models", "from-template", "Woodlands"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "models",
+                "from-template",
+                "Woodlands"
+              ]
             }
           },
           "event": [
@@ -428,9 +646,225 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"Status is 201\", function() {",
-                  "  pm.response.to.have.status(201);",
-                  "});"
+                  "pm.test('Status is 201', function() { pm.response.to.have.status(201); });",
+                  "const json = pm.response.json();",
+                  "pm.test('Success is true', function() { pm.expect(json.success).to.be.true; });",
+                  "pm.test('Has modelId', function() { pm.expect(json).to.have.property('modelId'); });",
+                  "pm.test('Has stm_name', function() { pm.expect(json).to.have.property('stm_name'); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Delete State",
+          "description": "Deletes a single state (node). Requires global Editor role AND model-level editor role. SKIPPED when testStateId is not set — obtain from GET /models/:name response (states[n].state_id).",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/models/{{testModelName}}/states/{{testStateId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "models",
+                "{{testModelName}}",
+                "states",
+                "{{testStateId}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get('testStateId') && !pm.variables.get('testStateId')) {",
+                  "  pm.execution.skipRequest();",
+                  "}"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', function() { pm.response.to.have.status(200); });",
+                  "pm.test('Success is true', function() { pm.expect(pm.response.json().success).to.be.true; });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Delete Transition",
+          "description": "Deletes a single transition (edge). Requires global Editor role AND model-level editor role. SKIPPED when testTransitionId is not set — obtain from GET /models/:name response (transitions[n].id).",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/models/{{testModelName}}/transitions/{{testTransitionId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "models",
+                "{{testModelName}}",
+                "transitions",
+                "{{testTransitionId}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get('testTransitionId') && !pm.variables.get('testTransitionId')) {",
+                  "  pm.execution.skipRequest();",
+                  "}"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', function() { pm.response.to.have.status(200); });",
+                  "pm.test('Success is true', function() { pm.expect(pm.response.json().success).to.be.true; });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Review Lock",
+          "description": "Returns the permanent review lock status. Available to any model role. Response: { is_locked: boolean, locked_by?, locked_at?, lock_reason? }.",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/models/{{testModelName}}/review-lock",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "models",
+                "{{testModelName}}",
+                "review-lock"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', function() { pm.response.to.have.status(200); });",
+                  "pm.test('Has is_locked field', function() { pm.expect(pm.response.json()).to.have.property('is_locked'); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Lock for Review",
+          "description": "Permanently locks a model for review. Admin only. The next request (Unlock from Review) immediately reverses it to keep the suite clean.",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"reason\":\"Postman collection test lock\"}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/models/{{testModelName}}/review-lock",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "models",
+                "{{testModelName}}",
+                "review-lock"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', function() { pm.response.to.have.status(200); });",
+                  "const json = pm.response.json();",
+                  "pm.test('Success is true', function() { pm.expect(json.success).to.be.true; });",
+                  "pm.test('Model is now locked', function() { pm.expect(json.is_locked).to.be.true; });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Unlock from Review",
+          "description": "Removes the permanent review lock. Admin only. Restores model to editable state.",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/models/{{testModelName}}/review-lock",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "models",
+                "{{testModelName}}",
+                "review-lock"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', function() { pm.response.to.have.status(200); });",
+                  "pm.test('Success is true', function() { pm.expect(pm.response.json().success).to.be.true; });"
                 ]
               }
             }
@@ -438,15 +872,24 @@
         },
         {
           "name": "Delete Model",
+          "description": "Deletes the model created by Save Model. Admin only. Will fail if model is review-locked.",
           "request": {
             "method": "DELETE",
             "header": [
-              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
             ],
             "url": {
-              "raw": "{{baseUrl}}/models/Test Model",
-              "host": ["{{baseUrl}}"],
-              "path": ["models", "Test Model"]
+              "raw": "{{baseUrl}}/models/{{testNewModelName}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "models",
+                "{{testNewModelName}}"
+              ]
             }
           },
           "event": [
@@ -455,9 +898,10 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"Status is 200 or 404\", function() {",
-                  "  pm.expect(pm.response.code).to.be.oneOf([200, 404]);",
-                  "});"
+                  "pm.test('Status is 200 or 404', function() { pm.expect(pm.response.code).to.be.oneOf([200, 404]); });",
+                  "if (pm.response.code === 200) {",
+                  "  pm.test('Success is true', function() { pm.expect(pm.response.json().success).to.be.true; });",
+                  "}"
                 ]
               }
             }
@@ -470,15 +914,25 @@
       "item": [
         {
           "name": "List Permissions",
+          "description": "Returns all model_permissions rows for a model. Model owner or Admin only.",
           "request": {
             "method": "GET",
             "header": [
-              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
             ],
             "url": {
               "raw": "{{baseUrl}}/models/Woodlands/permissions",
-              "host": ["{{baseUrl}}"],
-              "path": ["models", "Woodlands", "permissions"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "models",
+                "Woodlands",
+                "permissions"
+              ]
             }
           },
           "event": [
@@ -487,9 +941,8 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"Status is 200\", function() {",
-                  "  pm.response.to.have.status(200);",
-                  "});"
+                  "pm.test('Status is 200', function() { pm.response.to.have.status(200); });",
+                  "pm.test('Body is array', function() { pm.expect(pm.response.json()).to.be.an('array'); });"
                 ]
               }
             }
@@ -497,20 +950,34 @@
         },
         {
           "name": "Grant Role",
+          "description": "Upserts a per-model role. Role must be one of: owner, editor, reviewer, viewer (lowercase). Model owner or Admin only. Response: { success, stm_name, user_email, role }.",
           "request": {
             "method": "PUT",
             "header": [
-              { "key": "Authorization", "value": "Bearer {{accessToken}}" },
-              { "key": "Content-Type", "value": "application/json" }
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
             ],
             "body": {
               "mode": "raw",
               "raw": "{\"role\":\"viewer\"}"
             },
             "url": {
-              "raw": "{{baseUrl}}/models/Woodlands/permissions/viewer@example.com",
-              "host": ["{{baseUrl}}"],
-              "path": ["models", "Woodlands", "permissions", "viewer@example.com"]
+              "raw": "{{baseUrl}}/models/Woodlands/permissions/{{viewerEmail}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "models",
+                "Woodlands",
+                "permissions",
+                "{{viewerEmail}}"
+              ]
             }
           },
           "event": [
@@ -519,9 +986,10 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"Status is 200\", function() {",
-                  "  pm.response.to.have.status(200);",
-                  "});"
+                  "pm.test('Status is 200', function() { pm.response.to.have.status(200); });",
+                  "const json = pm.response.json();",
+                  "pm.test('Success is true', function() { pm.expect(json.success).to.be.true; });",
+                  "pm.test('Role is viewer', function() { pm.expect(json.role).to.equal('viewer'); });"
                 ]
               }
             }
@@ -529,15 +997,26 @@
         },
         {
           "name": "Revoke Role",
+          "description": "Removes a per-model role assignment. Model owner or Admin only. Response: { success, stm_name, user_email }.",
           "request": {
             "method": "DELETE",
             "header": [
-              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
             ],
             "url": {
-              "raw": "{{baseUrl}}/models/Woodlands/permissions/viewer@example.com",
-              "host": ["{{baseUrl}}"],
-              "path": ["models", "Woodlands", "permissions", "viewer@example.com"]
+              "raw": "{{baseUrl}}/models/Woodlands/permissions/{{viewerEmail}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "models",
+                "Woodlands",
+                "permissions",
+                "{{viewerEmail}}"
+              ]
             }
           },
           "event": [
@@ -546,9 +1025,8 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"Status is 200\", function() {",
-                  "  pm.response.to.have.status(200);",
-                  "});"
+                  "pm.test('Status is 200', function() { pm.response.to.have.status(200); });",
+                  "pm.test('Success is true', function() { pm.expect(pm.response.json().success).to.be.true; });"
                 ]
               }
             }
@@ -564,12 +1042,27 @@
           "request": {
             "method": "GET",
             "header": [
-              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
             ],
             "url": {
-              "raw": "{{baseUrl}}/collab/Woodlands/activity",
-              "host": ["{{baseUrl}}"],
-              "path": ["collab", "Woodlands", "activity"]
+              "raw": "{{baseUrl}}/collab/Woodlands/activity?limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "collab",
+                "Woodlands",
+                "activity"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
             }
           },
           "event": [
@@ -578,12 +1071,11 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"Status is 200\", function() {",
-                  "  pm.response.to.have.status(200);",
-                  "});",
-                  "pm.test(\"Has entries\", function() {",
+                  "pm.test('Status is 200', function() { pm.response.to.have.status(200); });",
+                  "pm.test('Has entries array', function() {",
                   "  const json = pm.response.json();",
-                  "  pm.expect(json).to.have.property(\"entries\").or.to.be.an(\"array\");",
+                  "  pm.expect(json).to.have.property('entries');",
+                  "  pm.expect(json.entries).to.be.an('array');",
                   "});"
                 ]
               }
@@ -592,15 +1084,35 @@
         },
         {
           "name": "Get Comments",
+          "description": "Response: { comments: [...], total: N, limit: N, offset: N }.",
           "request": {
             "method": "GET",
             "header": [
-              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
             ],
             "url": {
-              "raw": "{{baseUrl}}/collab/Woodlands/comments",
-              "host": ["{{baseUrl}}"],
-              "path": ["collab", "Woodlands", "comments"]
+              "raw": "{{baseUrl}}/collab/Woodlands/comments?limit=50&offset=0",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "collab",
+                "Woodlands",
+                "comments"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "key": "offset",
+                  "value": "0"
+                }
+              ]
             }
           },
           "event": [
@@ -609,13 +1121,10 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"Status is 200\", function() {",
-                  "  pm.response.to.have.status(200);",
-                  "});",
-                  "pm.test(\"Has comments\", function() {",
-                  "  const json = pm.response.json();",
-                  "  pm.expect(json).to.have.property(\"comments\").or.to.be.an(\"array\");",
-                  "});"
+                  "pm.test('Status is 200', function() { pm.response.to.have.status(200); });",
+                  "const json = pm.response.json();",
+                  "pm.test('Has comments array', function() { pm.expect(json).to.have.property('comments').that.is.an('array'); });",
+                  "pm.test('Has total', function() { pm.expect(json).to.have.property('total'); });"
                 ]
               }
             }
@@ -623,20 +1132,33 @@
         },
         {
           "name": "Post Comment",
+          "description": "Response: { comment: { id, body, entityType, entityId, parentId, createdAt, ... } }. Requires model owner, editor, or reviewer role.",
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Authorization", "value": "Bearer {{accessToken}}" },
-              { "key": "Content-Type", "value": "application/json" }
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\"body\":\"Test comment\"}"
+              "raw": "{\"body\":\"Test comment from Postman collection\"}"
             },
             "url": {
               "raw": "{{baseUrl}}/collab/Woodlands/comments",
-              "host": ["{{baseUrl}}"],
-              "path": ["collab", "Woodlands", "comments"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "collab",
+                "Woodlands",
+                "comments"
+              ]
             }
           },
           "event": [
@@ -645,12 +1167,13 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"Status is 201\", function() {",
-                  "  pm.response.to.have.status(201);",
-                  "});",
+                  "pm.test('Status is 201', function() { pm.response.to.have.status(201); });",
                   "const json = pm.response.json();",
-                  "const id = json.id || (json.comment && json.comment.id);",
-                  "if (id) pm.environment.set(\"testCommentId\", id);"
+                  "pm.test('Has comment object with id', function() {",
+                  "  pm.expect(json).to.have.property('comment');",
+                  "  pm.expect(json.comment).to.have.property('id');",
+                  "});",
+                  "if (json.comment && json.comment.id) pm.environment.set('testCommentId', json.comment.id);"
                 ]
               }
             }
@@ -658,26 +1181,48 @@
         },
         {
           "name": "Resolve Comment",
+          "description": "Marks a comment as resolved. SKIPPED when testCommentId is not set.",
           "request": {
             "method": "PATCH",
             "header": [
-              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
             ],
             "url": {
               "raw": "{{baseUrl}}/collab/Woodlands/comments/{{testCommentId}}/resolve",
-              "host": ["{{baseUrl}}"],
-              "path": ["collab", "Woodlands", "comments", "{{testCommentId}}", "resolve"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "collab",
+                "Woodlands",
+                "comments",
+                "{{testCommentId}}",
+                "resolve"
+              ]
             }
           },
           "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get('testCommentId') && !pm.variables.get('testCommentId')) {",
+                  "  pm.execution.skipRequest();",
+                  "}"
+                ]
+              }
+            },
             {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"Status is 200\", function() {",
-                  "  pm.response.to.have.status(200);",
-                  "});"
+                  "pm.test('Status is 200', function() { pm.response.to.have.status(200); });",
+                  "pm.test('Success is true', function() { pm.expect(pm.response.json().success).to.be.true; });"
                 ]
               }
             }
@@ -685,26 +1230,47 @@
         },
         {
           "name": "Delete Comment",
+          "description": "Deletes a comment. SKIPPED when testCommentId is not set.",
           "request": {
             "method": "DELETE",
             "header": [
-              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
             ],
             "url": {
               "raw": "{{baseUrl}}/collab/Woodlands/comments/{{testCommentId}}",
-              "host": ["{{baseUrl}}"],
-              "path": ["collab", "Woodlands", "comments", "{{testCommentId}}"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "collab",
+                "Woodlands",
+                "comments",
+                "{{testCommentId}}"
+              ]
             }
           },
           "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get('testCommentId') && !pm.variables.get('testCommentId')) {",
+                  "  pm.execution.skipRequest();",
+                  "}"
+                ]
+              }
+            },
             {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"Status is 200\", function() {",
-                  "  pm.response.to.have.status(200);",
-                  "});"
+                  "pm.test('Status is 200', function() { pm.response.to.have.status(200); });",
+                  "pm.test('Success is true', function() { pm.expect(pm.response.json().success).to.be.true; });"
                 ]
               }
             }
@@ -712,15 +1278,25 @@
         },
         {
           "name": "List Milestones",
+          "description": "Response: { milestones: [...] }. Available to all model roles.",
           "request": {
             "method": "GET",
             "header": [
-              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
             ],
             "url": {
               "raw": "{{baseUrl}}/collab/Woodlands/milestones",
-              "host": ["{{baseUrl}}"],
-              "path": ["collab", "Woodlands", "milestones"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "collab",
+                "Woodlands",
+                "milestones"
+              ]
             }
           },
           "event": [
@@ -729,9 +1305,8 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"Status is 200\", function() {",
-                  "  pm.response.to.have.status(200);",
-                  "});"
+                  "pm.test('Status is 200', function() { pm.response.to.have.status(200); });",
+                  "pm.test('Has milestones array', function() { pm.expect(pm.response.json()).to.have.property('milestones').that.is.an('array'); });"
                 ]
               }
             }
@@ -739,20 +1314,33 @@
         },
         {
           "name": "Create Milestone",
+          "description": "Snapshots the current model. Response: { milestone: { id, label, createdAt, snapshot } }. Requires model owner or editor role.",
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Authorization", "value": "Bearer {{accessToken}}" },
-              { "key": "Content-Type", "value": "application/json" }
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\"label\":\"Sprint 1\"}"
+              "raw": "{\"label\":\"Sprint 1 - Postman\"}"
             },
             "url": {
               "raw": "{{baseUrl}}/collab/Woodlands/milestones",
-              "host": ["{{baseUrl}}"],
-              "path": ["collab", "Woodlands", "milestones"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "collab",
+                "Woodlands",
+                "milestones"
+              ]
             }
           },
           "event": [
@@ -761,9 +1349,168 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"Status is 201\", function() {",
-                  "  pm.response.to.have.status(201);",
+                  "pm.test('Status is 201', function() { pm.response.to.have.status(201); });",
+                  "const json = pm.response.json();",
+                  "pm.test('Has milestone object with id', function() {",
+                  "  pm.expect(json).to.have.property('milestone');",
+                  "  pm.expect(json.milestone).to.have.property('id');",
+                  "  pm.expect(json.milestone).to.have.property('label');",
+                  "});",
+                  "if (json.milestone && json.milestone.id) pm.environment.set('testMilestoneId', json.milestone.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Milestone",
+          "description": "Returns a single milestone by ID. Response: { milestone: { id, label, createdAt, snapshot } }. SKIPPED when testMilestoneId is not set.",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/collab/Woodlands/milestones/{{testMilestoneId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "collab",
+                "Woodlands",
+                "milestones",
+                "{{testMilestoneId}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get('testMilestoneId') && !pm.variables.get('testMilestoneId')) {",
+                  "  pm.execution.skipRequest();",
+                  "}"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', function() { pm.response.to.have.status(200); });",
+                  "const json = pm.response.json();",
+                  "pm.test('Has milestone with id and label', function() {",
+                  "  pm.expect(json).to.have.property('milestone');",
+                  "  pm.expect(json.milestone).to.have.property('id');",
+                  "  pm.expect(json.milestone).to.have.property('label');",
                   "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Restore from Milestone",
+          "description": "Overwrites the current model with the milestone snapshot. WARNING: destructive. Requires model owner or editor role. SKIPPED when testMilestoneId is not set.",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": ""
+            },
+            "url": {
+              "raw": "{{baseUrl}}/collab/Woodlands/milestones/{{testMilestoneId}}/restore",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "collab",
+                "Woodlands",
+                "milestones",
+                "{{testMilestoneId}}",
+                "restore"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get('testMilestoneId') && !pm.variables.get('testMilestoneId')) {",
+                  "  pm.execution.skipRequest();",
+                  "}"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', function() { pm.response.to.have.status(200); });",
+                  "pm.test('Has message', function() { pm.expect(pm.response.json()).to.have.property('message'); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Delete Milestone",
+          "description": "Permanently deletes a milestone snapshot. Admin only. SKIPPED when testMilestoneId is not set.",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/collab/Woodlands/milestones/{{testMilestoneId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "collab",
+                "Woodlands",
+                "milestones",
+                "{{testMilestoneId}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get('testMilestoneId') && !pm.variables.get('testMilestoneId')) {",
+                  "  pm.execution.skipRequest();",
+                  "}"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', function() { pm.response.to.have.status(200); });",
+                  "pm.test('Success is true', function() { pm.expect(pm.response.json().success).to.be.true; });"
                 ]
               }
             }
@@ -776,11 +1523,18 @@
       "item": [
         {
           "name": "Acquire Lock",
+          "description": "Acquires or refreshes an exclusive editing lock. Response: { success, locked, lockId, lockedBy, owner, lock_type, expiresAt }. lock_type is 'review' for reviewer model role, 'edit' otherwise.",
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Authorization", "value": "Bearer {{accessToken}}" },
-              { "key": "Content-Type", "value": "application/json" }
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
             ],
             "body": {
               "mode": "raw",
@@ -788,8 +1542,15 @@
             },
             "url": {
               "raw": "{{baseUrl}}/models/Woodlands/lock/acquire",
-              "host": ["{{baseUrl}}"],
-              "path": ["models", "Woodlands", "lock", "acquire"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "models",
+                "Woodlands",
+                "lock",
+                "acquire"
+              ]
             }
           },
           "event": [
@@ -798,15 +1559,12 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"Status is 200\", function() {",
-                  "  pm.response.to.have.status(200);",
-                  "});",
-                  "pm.test(\"Has locked field\", function() {",
-                  "  pm.expect(pm.response.json()).to.have.property(\"locked\");",
-                  "});",
+                  "pm.test('Status is 200', function() { pm.response.to.have.status(200); });",
                   "const json = pm.response.json();",
-                  "const lockId = json.lockId || json.lock_id || (json.lock && json.lock.id);",
-                  "if (lockId) pm.environment.set(\"testLockId\", lockId);"
+                  "pm.test('Has locked field', function() { pm.expect(json).to.have.property('locked'); });",
+                  "pm.test('Has lockId', function() { pm.expect(json).to.have.property('lockId'); });",
+                  "pm.test('Has lock_type', function() { pm.expect(json.lock_type).to.be.oneOf(['edit', 'review']); });",
+                  "if (json.lockId) pm.environment.set('testLockId', json.lockId);"
                 ]
               }
             }
@@ -814,15 +1572,25 @@
         },
         {
           "name": "Get Lock Status",
+          "description": "Response when locked: { locked: true, lockId, lockedBy, expiresAt, owner, lock_type }. Response when unlocked: { locked: false }.",
           "request": {
             "method": "GET",
             "header": [
-              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
             ],
             "url": {
               "raw": "{{baseUrl}}/models/Woodlands/lock",
-              "host": ["{{baseUrl}}"],
-              "path": ["models", "Woodlands", "lock"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "models",
+                "Woodlands",
+                "lock"
+              ]
             }
           },
           "event": [
@@ -831,12 +1599,13 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"Status is 200\", function() {",
-                  "  pm.response.to.have.status(200);",
-                  "});",
-                  "pm.test(\"Has locked field\", function() {",
-                  "  pm.expect(pm.response.json()).to.have.property(\"locked\");",
-                  "});"
+                  "pm.test('Status is 200', function() { pm.response.to.have.status(200); });",
+                  "const json = pm.response.json();",
+                  "pm.test('Has locked field', function() { pm.expect(json).to.have.property('locked'); });",
+                  "if (json.locked) {",
+                  "  pm.test('Has lock_type when locked', function() { pm.expect(json.lock_type).to.be.oneOf(['edit', 'review']); });",
+                  "  pm.test('Has lockedBy when locked', function() { pm.expect(json).to.have.property('lockedBy'); });",
+                  "}"
                 ]
               }
             }
@@ -844,11 +1613,18 @@
         },
         {
           "name": "Renew Lock",
+          "description": "Extends lock TTL by 120 seconds. SKIPPED when testLockId is not set.",
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Authorization", "value": "Bearer {{accessToken}}" },
-              { "key": "Content-Type", "value": "application/json" }
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
             ],
             "body": {
               "mode": "raw",
@@ -856,19 +1632,37 @@
             },
             "url": {
               "raw": "{{baseUrl}}/models/Woodlands/lock/renew",
-              "host": ["{{baseUrl}}"],
-              "path": ["models", "Woodlands", "lock", "renew"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "models",
+                "Woodlands",
+                "lock",
+                "renew"
+              ]
             }
           },
           "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get('testLockId') && !pm.variables.get('testLockId')) {",
+                  "  pm.execution.skipRequest();",
+                  "}"
+                ]
+              }
+            },
             {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"Status is 200\", function() {",
-                  "  pm.response.to.have.status(200);",
-                  "});"
+                  "pm.test('Status is 200', function() { pm.response.to.have.status(200); });",
+                  "pm.test('Success is true', function() { pm.expect(pm.response.json().success).to.be.true; });",
+                  "pm.test('Has expiresAt', function() { pm.expect(pm.response.json()).to.have.property('expiresAt'); });"
                 ]
               }
             }
@@ -876,11 +1670,18 @@
         },
         {
           "name": "Release Lock",
+          "description": "Releases an editing lock. Only the lock owner can release. SKIPPED when testLockId is not set.",
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Authorization", "value": "Bearer {{accessToken}}" },
-              { "key": "Content-Type", "value": "application/json" }
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
             ],
             "body": {
               "mode": "raw",
@@ -888,19 +1689,36 @@
             },
             "url": {
               "raw": "{{baseUrl}}/models/Woodlands/lock/release",
-              "host": ["{{baseUrl}}"],
-              "path": ["models", "Woodlands", "lock", "release"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "models",
+                "Woodlands",
+                "lock",
+                "release"
+              ]
             }
           },
           "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get('testLockId') && !pm.variables.get('testLockId')) {",
+                  "  pm.execution.skipRequest();",
+                  "}"
+                ]
+              }
+            },
             {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"Status is 200\", function() {",
-                  "  pm.response.to.have.status(200);",
-                  "});"
+                  "pm.test('Status is 200', function() { pm.response.to.have.status(200); });",
+                  "pm.test('Success is true', function() { pm.expect(pm.response.json().success).to.be.true; });"
                 ]
               }
             }
@@ -916,15 +1734,29 @@
           "request": {
             "method": "GET",
             "header": [
-              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
             ],
             "url": {
               "raw": "{{baseUrl}}/drivers/search?q=fire&limit=5",
-              "host": ["{{baseUrl}}"],
-              "path": ["drivers", "search"],
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "drivers",
+                "search"
+              ],
               "query": [
-                { "key": "q", "value": "fire" },
-                { "key": "limit", "value": "5" }
+                {
+                  "key": "q",
+                  "value": "fire"
+                },
+                {
+                  "key": "limit",
+                  "value": "5"
+                }
               ]
             }
           },
@@ -934,12 +1766,8 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"Status is 200\", function() {",
-                  "  pm.response.to.have.status(200);",
-                  "});",
-                  "pm.test(\"Body is array\", function() {",
-                  "  pm.expect(pm.response.json()).to.be.an(\"array\");",
-                  "});"
+                  "pm.test('Status is 200', function() { pm.response.to.have.status(200); });",
+                  "pm.test('Body is array', function() { pm.expect(pm.response.json()).to.be.an('array'); });"
                 ]
               }
             }
@@ -950,12 +1778,21 @@
           "request": {
             "method": "GET",
             "header": [
-              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
             ],
             "url": {
               "raw": "{{baseUrl}}/drivers/1/sub-drivers",
-              "host": ["{{baseUrl}}"],
-              "path": ["drivers", "1", "sub-drivers"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "drivers",
+                "1",
+                "sub-drivers"
+              ]
             }
           },
           "event": [
@@ -964,9 +1801,10 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"Status is 200 or 404\", function() {",
-                  "  pm.expect(pm.response.code).to.be.oneOf([200, 404]);",
-                  "});"
+                  "pm.test('Status is 200 or 404', function() { pm.expect(pm.response.code).to.be.oneOf([200, 404]); });",
+                  "if (pm.response.code === 200) {",
+                  "  pm.test('Body is array', function() { pm.expect(pm.response.json()).to.be.an('array'); });",
+                  "}"
                 ]
               }
             }
@@ -979,15 +1817,24 @@
       "item": [
         {
           "name": "Get Mentions",
+          "description": "Response: { mentions: [...] }.",
           "request": {
             "method": "GET",
             "header": [
-              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
             ],
             "url": {
               "raw": "{{baseUrl}}/notifications/mentions",
-              "host": ["{{baseUrl}}"],
-              "path": ["notifications", "mentions"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "notifications",
+                "mentions"
+              ]
             }
           },
           "event": [
@@ -996,13 +1843,8 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"Status is 200\", function() {",
-                  "  pm.response.to.have.status(200);",
-                  "});",
-                  "pm.test(\"Has mentions\", function() {",
-                  "  const json = pm.response.json();",
-                  "  pm.expect(json).to.have.property(\"mentions\").or.to.be.an(\"array\");",
-                  "});"
+                  "pm.test('Status is 200', function() { pm.response.to.have.status(200); });",
+                  "pm.test('Has mentions array', function() { pm.expect(pm.response.json()).to.have.property('mentions').that.is.an('array'); });"
                 ]
               }
             }
@@ -1010,11 +1852,18 @@
         },
         {
           "name": "Mark Read",
+          "description": "Sets notified_at = NOW() for the provided mention IDs. Returns 204 No Content on success.",
           "request": {
             "method": "PATCH",
             "header": [
-              { "key": "Authorization", "value": "Bearer {{accessToken}}" },
-              { "key": "Content-Type", "value": "application/json" }
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
             ],
             "body": {
               "mode": "raw",
@@ -1022,8 +1871,14 @@
             },
             "url": {
               "raw": "{{baseUrl}}/notifications/mentions/read",
-              "host": ["{{baseUrl}}"],
-              "path": ["notifications", "mentions", "read"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "notifications",
+                "mentions",
+                "read"
+              ]
             }
           },
           "event": [
@@ -1032,9 +1887,7 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"Status is 200 or 204\", function() {",
-                  "  pm.expect(pm.response.code).to.be.oneOf([200, 204]);",
-                  "});"
+                  "pm.test('Status is 204 or 400', function() { pm.expect(pm.response.code).to.be.oneOf([204, 400]); });"
                 ]
               }
             }
@@ -1047,80 +1900,24 @@
       "item": [
         {
           "name": "Stats",
+          "description": "Response: { totalUsers, verifiedUsers, unverifiedUsers, activeSessions }.",
           "request": {
             "method": "GET",
             "header": [
-              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
             ],
             "url": {
               "raw": "{{baseUrl}}/api/admin/stats",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "admin", "stats"]
-            }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test(\"Status is 200\", function() {",
-                  "  pm.response.to.have.status(200);",
-                  "});",
-                  "pm.test(\"Has totalUsers\", function() {",
-                  "  pm.expect(pm.response.json()).to.have.property(\"totalUsers\");",
-                  "});"
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "name": "List Users",
-          "request": {
-            "method": "GET",
-            "header": [
-              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/api/admin/users",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "admin", "users"]
-            }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test(\"Status is 200\", function() {",
-                  "  pm.response.to.have.status(200);",
-                  "});",
-                  "pm.test(\"Has users array\", function() {",
-                  "  const json = pm.response.json();",
-                  "  pm.expect(json).to.have.property(\"users\").that.is.an(\"array\");",
-                  "});"
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "name": "List Users with Filters",
-          "request": {
-            "method": "GET",
-            "header": [
-              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/api/admin/users?role=Viewer&limit=5&page=1",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "admin", "users"],
-              "query": [
-                { "key": "role", "value": "Viewer" },
-                { "key": "limit", "value": "5" },
-                { "key": "page", "value": "1" }
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "stats"
               ]
             }
           },
@@ -1130,9 +1927,151 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"Status is 200\", function() {",
-                  "  pm.response.to.have.status(200);",
+                  "pm.test('Status is 200', function() { pm.response.to.have.status(200); });",
+                  "const json = pm.response.json();",
+                  "pm.test('Has totalUsers', function() { pm.expect(json).to.have.property('totalUsers'); });",
+                  "pm.test('Has verifiedUsers', function() { pm.expect(json).to.have.property('verifiedUsers'); });",
+                  "pm.test('Has activeSessions', function() { pm.expect(json).to.have.property('activeSessions'); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List Users",
+          "description": "Response: { users: [...], total, page, totalPages }.",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/users",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "users"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', function() { pm.response.to.have.status(200); });",
+                  "const json = pm.response.json();",
+                  "pm.test('Has users array', function() { pm.expect(json).to.have.property('users').that.is.an('array'); });",
+                  "pm.test('Has pagination fields', function() {",
+                  "  pm.expect(json).to.have.property('total');",
+                  "  pm.expect(json).to.have.property('page');",
+                  "  pm.expect(json).to.have.property('totalPages');",
                   "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List Users (role filter)",
+          "description": "Filter by role. Valid values: Viewer, Editor, Admin (capitalized).",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/users?role=Viewer&limit=5&page=1",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "users"
+              ],
+              "query": [
+                {
+                  "key": "role",
+                  "value": "Viewer"
+                },
+                {
+                  "key": "limit",
+                  "value": "5"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', function() { pm.response.to.have.status(200); });",
+                  "pm.test('All returned users are Viewer', function() {",
+                  "  pm.response.json().users.forEach(function(u) { pm.expect(u.role).to.equal('Viewer'); });",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List Users (search filter)",
+          "description": "Case-insensitive substring match on email or contributor name using ?search param.",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/users?search=example&limit=10",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "users"
+              ],
+              "query": [
+                {
+                  "key": "search",
+                  "value": "example"
+                },
+                {
+                  "key": "limit",
+                  "value": "10"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', function() { pm.response.to.have.status(200); });",
+                  "pm.test('Has users array', function() { pm.expect(pm.response.json()).to.have.property('users').that.is.an('array'); });"
                 ]
               }
             }
@@ -1140,11 +2079,18 @@
         },
         {
           "name": "Update User Role",
+          "description": "Role must be one of: Viewer, Editor, Admin (capitalized). Cannot change your own role. SKIPPED when testUserId is not set.",
           "request": {
             "method": "PATCH",
             "header": [
-              { "key": "Authorization", "value": "Bearer {{accessToken}}" },
-              { "key": "Content-Type", "value": "application/json" }
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
             ],
             "body": {
               "mode": "raw",
@@ -1152,35 +2098,65 @@
             },
             "url": {
               "raw": "{{baseUrl}}/api/admin/users/{{testUserId}}/role",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "admin", "users", "{{testUserId}}", "role"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "users",
+                "{{testUserId}}",
+                "role"
+              ]
             }
           },
           "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get('testUserId') && !pm.variables.get('testUserId')) {",
+                  "  pm.execution.skipRequest();",
+                  "}"
+                ]
+              }
+            },
             {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"Status is 200 or 400\", function() {",
-                  "  pm.expect(pm.response.code).to.be.oneOf([200, 400]);",
-                  "});"
+                  "pm.test('Status is 200 or 400', function() { pm.expect(pm.response.code).to.be.oneOf([200, 400]); });",
+                  "if (pm.response.code === 200) {",
+                  "  pm.test('Has updated user', function() { pm.expect(pm.response.json()).to.have.property('user'); });",
+                  "}"
                 ]
               }
             }
           ]
         },
         {
-          "name": "Get Audit Log",
+          "name": "Audit Log",
+          "description": "Returns the most recent 20 audit log entries with actor email.",
           "request": {
             "method": "GET",
             "header": [
-              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
             ],
             "url": {
               "raw": "{{baseUrl}}/api/admin/audit-log",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "admin", "audit-log"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "audit-log"
+              ]
             }
           },
           "event": [
@@ -1189,13 +2165,108 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"Status is 200\", function() {",
-                  "  pm.response.to.have.status(200);",
-                  "});",
-                  "pm.test(\"Has logs\", function() {",
-                  "  const json = pm.response.json();",
-                  "  pm.expect(json).to.have.property(\"logs\").or.to.be.an(\"array\");",
-                  "});"
+                  "pm.test('Status is 200', function() { pm.response.to.have.status(200); });",
+                  "pm.test('Has logs array', function() { pm.expect(pm.response.json()).to.have.property('logs').that.is.an('array'); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Revoke User Sessions",
+          "description": "Deletes all session rows for a user. Response: { message, count }. SKIPPED when testDeleteUserId is not set.",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/users/{{testDeleteUserId}}/sessions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "users",
+                "{{testDeleteUserId}}",
+                "sessions"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get('testDeleteUserId') && !pm.variables.get('testDeleteUserId')) {",
+                  "  pm.execution.skipRequest();",
+                  "}"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', function() { pm.response.to.have.status(200); });",
+                  "pm.test('Has message', function() { pm.expect(pm.response.json()).to.have.property('message'); });",
+                  "pm.test('Has count', function() { pm.expect(pm.response.json()).to.have.property('count'); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Delete User",
+          "description": "Permanently deletes a user account. Cannot delete yourself or the last Admin. SKIPPED when testDeleteUserId is not set.",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/users/{{testDeleteUserId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "users",
+                "{{testDeleteUserId}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get('testDeleteUserId') && !pm.variables.get('testDeleteUserId')) {",
+                  "  pm.execution.skipRequest();",
+                  "}"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200 or 400 or 404', function() { pm.expect(pm.response.code).to.be.oneOf([200, 400, 404]); });",
+                  "if (pm.response.code === 200) {",
+                  "  pm.test('Has message', function() { pm.expect(pm.response.json()).to.have.property('message'); });",
+                  "}"
                 ]
               }
             }
@@ -1211,12 +2282,20 @@
           "request": {
             "method": "GET",
             "header": [
-              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
             ],
             "url": {
               "raw": "{{baseUrl}}/models/Woodlands",
-              "host": ["{{baseUrl}}"],
-              "path": ["models", "Woodlands"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "models",
+                "Woodlands"
+              ]
             }
           },
           "event": [
@@ -1225,9 +2304,7 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"Status is 200\", function() {",
-                  "  pm.response.to.have.status(200);",
-                  "});"
+                  "pm.test('Woodlands template exists — status 200', function() { pm.response.to.have.status(200); });"
                 ]
               }
             }
@@ -1238,12 +2315,20 @@
           "request": {
             "method": "GET",
             "header": [
-              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
             ],
             "url": {
               "raw": "{{baseUrl}}/models/Grasslands",
-              "host": ["{{baseUrl}}"],
-              "path": ["models", "Grasslands"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "models",
+                "Grasslands"
+              ]
             }
           },
           "event": [
@@ -1252,9 +2337,7 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"Status is 200\", function() {",
-                  "  pm.response.to.have.status(200);",
-                  "});"
+                  "pm.test('Grasslands template exists — status 200', function() { pm.response.to.have.status(200); });"
                 ]
               }
             }
@@ -1265,12 +2348,20 @@
           "request": {
             "method": "GET",
             "header": [
-              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
             ],
             "url": {
               "raw": "{{baseUrl}}/models/Shrublands",
-              "host": ["{{baseUrl}}"],
-              "path": ["models", "Shrublands"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "models",
+                "Shrublands"
+              ]
             }
           },
           "event": [
@@ -1279,9 +2370,7 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"Status is 200\", function() {",
-                  "  pm.response.to.have.status(200);",
-                  "});"
+                  "pm.test('Shrublands template exists — status 200', function() { pm.response.to.have.status(200); });"
                 ]
               }
             }
@@ -1291,77 +2380,141 @@
     },
     {
       "name": "RBAC Matrix",
+      "description": "Comprehensive RBAC tests. Setup grants model roles (editor user → reviewer, viewer user → viewer on Woodlands); teardown revokes them and deletes test data. Run Auth folder first to populate all three tokens.",
       "item": [
         {
-          "name": "Admin-only — Stats with Viewer Token (expect 403)",
+          "name": "[Setup] Grant Editor user → reviewer model role on Woodlands",
+          "description": "Uses admin token to grant the editor account the 'reviewer' model role. All [Reviewer] tests depend on this. Skipped when editorAccessToken is not set.",
           "request": {
-            "method": "GET",
+            "method": "PUT",
             "header": [
-              { "key": "Authorization", "value": "Bearer {{viewerAccessToken}}" }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/api/admin/stats",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "admin", "stats"]
-            }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test(\"Viewer cannot access admin stats — expect 403\", function() {",
-                  "  pm.response.to.have.status(403);",
-                  "});"
-                ]
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
               }
-            }
-          ]
-        },
-        {
-          "name": "Admin-only — Update Role with Editor Token (expect 403)",
-          "request": {
-            "method": "PATCH",
-            "header": [
-              { "key": "Authorization", "value": "Bearer {{editorAccessToken}}" },
-              { "key": "Content-Type", "value": "application/json" }
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\"role\":\"Admin\"}"
+              "raw": "{\"role\":\"reviewer\"}"
             },
             "url": {
-              "raw": "{{baseUrl}}/api/admin/users/1/role",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "admin", "users", "1", "role"]
+              "raw": "{{baseUrl}}/models/Woodlands/permissions/{{editorEmail}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "models",
+                "Woodlands",
+                "permissions",
+                "{{editorEmail}}"
+              ]
             }
           },
           "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get('editorAccessToken') && !pm.variables.get('editorAccessToken')) {",
+                  "  pm.execution.skipRequest();",
+                  "}"
+                ]
+              }
+            },
             {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"Editor cannot update user roles — expect 403\", function() {",
-                  "  pm.response.to.have.status(403);",
-                  "});"
+                  "pm.test('Status 200 — reviewer role granted to editor user', function() { pm.response.to.have.status(200); });",
+                  "pm.test('Role is reviewer', function() { pm.expect(pm.response.json().role).to.equal('reviewer'); });"
                 ]
               }
             }
           ]
         },
         {
-          "name": "Models Read — List All with Viewer Token (expect 200)",
+          "name": "[Setup] Grant Viewer user → viewer model role on Woodlands",
+          "description": "Uses admin token to grant the viewer account the 'viewer' model role. All [Viewer] read tests depend on this. Skipped when viewerAccessToken is not set.",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"role\":\"viewer\"}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/models/Woodlands/permissions/{{viewerEmail}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "models",
+                "Woodlands",
+                "permissions",
+                "{{viewerEmail}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get('viewerAccessToken') && !pm.variables.get('viewerAccessToken')) {",
+                  "  pm.execution.skipRequest();",
+                  "}"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200 — viewer role granted to viewer user', function() { pm.response.to.have.status(200); });",
+                  "pm.test('Role is viewer', function() { pm.expect(pm.response.json().role).to.equal('viewer'); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "[Admin] Can access admin stats — expect 200",
+          "description": "requireAdmin passes for global Admin role.",
           "request": {
             "method": "GET",
             "header": [
-              { "key": "Authorization", "value": "Bearer {{viewerAccessToken}}" }
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
             ],
             "url": {
-              "raw": "{{baseUrl}}/models/all",
-              "host": ["{{baseUrl}}"],
-              "path": ["models", "all"]
+              "raw": "{{baseUrl}}/api/admin/stats",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "stats"
+              ]
             }
           },
           "event": [
@@ -1370,25 +2523,34 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"Viewer can list models — expect 200\", function() {",
-                  "  pm.response.to.have.status(200);",
-                  "});"
+                  "pm.test('Admin can access admin stats — 200', function() { pm.response.to.have.status(200); });",
+                  "pm.test('Has totalUsers', function() { pm.expect(pm.response.json()).to.have.property('totalUsers'); });"
                 ]
               }
             }
           ]
         },
         {
-          "name": "Models Write — Delete with Editor Token (expect 403)",
+          "name": "[Admin] Can list model permissions — expect 200",
+          "description": "requireModelOwnerOrAdmin passes for global Admin. Returns all permission rows for Woodlands.",
           "request": {
-            "method": "DELETE",
+            "method": "GET",
             "header": [
-              { "key": "Authorization", "value": "Bearer {{editorAccessToken}}" }
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
             ],
             "url": {
-              "raw": "{{baseUrl}}/models/SomeModel",
-              "host": ["{{baseUrl}}"],
-              "path": ["models", "SomeModel"]
+              "raw": "{{baseUrl}}/models/Woodlands/permissions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "models",
+                "Woodlands",
+                "permissions"
+              ]
             }
           },
           "event": [
@@ -1397,9 +2559,1220 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"Editor cannot delete models — expect 403\", function() {",
-                  "  pm.response.to.have.status(403);",
-                  "});"
+                  "pm.test('Admin can list permissions — 200', function() { pm.response.to.have.status(200); });",
+                  "pm.test('Response is array', function() { pm.expect(pm.response.json()).to.be.an('array'); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "[Admin] Can post comment — expect 201",
+          "description": "Admin bypasses requireModelRole check. Captures rbacCommentId for cleanup at end of suite.",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"body\":\"RBAC admin test comment — deleted in cleanup\"}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/collab/Woodlands/comments",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "collab",
+                "Woodlands",
+                "comments"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Admin can post comment — 201', function() { pm.response.to.have.status(201); });",
+                  "const json = pm.response.json();",
+                  "pm.test('Has comment with id', function() { pm.expect(json.comment).to.have.property('id'); });",
+                  "if (json.comment && json.comment.id) pm.environment.set('rbacCommentId', json.comment.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "[Admin] Can create milestone — expect 201",
+          "description": "Admin has owner-level model access. Captures rbacMilestoneId for the delete test immediately below.",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"label\":\"RBAC Test Milestone\"}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/collab/Woodlands/milestones",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "collab",
+                "Woodlands",
+                "milestones"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Admin can create milestone — 201', function() { pm.response.to.have.status(201); });",
+                  "const json = pm.response.json();",
+                  "pm.test('Has milestone with id and label', function() {",
+                  "  pm.expect(json.milestone).to.have.property('id');",
+                  "  pm.expect(json.milestone).to.have.property('label');",
+                  "});",
+                  "if (json.milestone && json.milestone.id) pm.environment.set('rbacMilestoneId', json.milestone.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "[Admin] Can delete milestone — expect 200",
+          "description": "DELETE /collab/:name/milestones/:id uses requireAdmin. SKIPPED when rbacMilestoneId is not set.",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/collab/Woodlands/milestones/{{rbacMilestoneId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "collab",
+                "Woodlands",
+                "milestones",
+                "{{rbacMilestoneId}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get('rbacMilestoneId') && !pm.variables.get('rbacMilestoneId')) {",
+                  "  pm.execution.skipRequest();",
+                  "}"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Admin can delete milestone — 200', function() { pm.response.to.have.status(200); });",
+                  "pm.test('Success is true', function() { pm.expect(pm.response.json().success).to.be.true; });",
+                  "pm.environment.unset('rbacMilestoneId');"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "[Admin] Can review-lock model — expect 200",
+          "description": "POST /models/:name/review-lock uses requireAdmin. Admin locks Woodlands for review.",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"reason\":\"RBAC matrix test lock\"}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/models/Woodlands/review-lock",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "models",
+                "Woodlands",
+                "review-lock"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Admin can review-lock model — 200', function() { pm.response.to.have.status(200); });",
+                  "pm.test('Model is now locked', function() { pm.expect(pm.response.json().is_locked).to.be.true; });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "[Admin] Can review-unlock model — expect 200",
+          "description": "DELETE /models/:name/review-lock uses requireAdmin. Immediately unlocks to restore test state.",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/models/Woodlands/review-lock",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "models",
+                "Woodlands",
+                "review-lock"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Admin can review-unlock model — 200', function() { pm.response.to.have.status(200); });",
+                  "pm.test('Success is true', function() { pm.expect(pm.response.json().success).to.be.true; });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "[Reviewer] Can get model — expect 200",
+          "description": "Editor user (global Editor + reviewer model role on Woodlands). GET /models/:name uses requireModelRole([viewer, editor, reviewer]) — reviewer passes.",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{editorAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/models/Woodlands",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "models",
+                "Woodlands"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get('editorAccessToken') && !pm.variables.get('editorAccessToken')) {",
+                  "  pm.execution.skipRequest();",
+                  "}"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Reviewer can get model — 200', function() { pm.response.to.have.status(200); });",
+                  "pm.test('Has stm_name', function() { pm.expect(pm.response.json()).to.have.property('stm_name'); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "[Reviewer] Can get activity log — expect 200",
+          "description": "GET /collab/:name/activity uses requireModelRole([owner, editor, reviewer, viewer]) — reviewer passes.",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{editorAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/collab/Woodlands/activity",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "collab",
+                "Woodlands",
+                "activity"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get('editorAccessToken') && !pm.variables.get('editorAccessToken')) {",
+                  "  pm.execution.skipRequest();",
+                  "}"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Reviewer can get activity log — 200', function() { pm.response.to.have.status(200); });",
+                  "pm.test('Has entries array', function() { pm.expect(pm.response.json()).to.have.property('entries').that.is.an('array'); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "[Reviewer] Can get comments — expect 200",
+          "description": "GET /collab/:name/comments uses requireModelRole([owner, editor, reviewer, viewer]) — reviewer passes.",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{editorAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/collab/Woodlands/comments",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "collab",
+                "Woodlands",
+                "comments"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get('editorAccessToken') && !pm.variables.get('editorAccessToken')) {",
+                  "  pm.execution.skipRequest();",
+                  "}"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Reviewer can get comments — 200', function() { pm.response.to.have.status(200); });",
+                  "pm.test('Has comments array', function() { pm.expect(pm.response.json()).to.have.property('comments').that.is.an('array'); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "[Reviewer] Can post comment — expect 201",
+          "description": "POST /collab/:name/comments uses requireModelRole([owner, editor, reviewer]) — reviewer is explicitly included. Captures reviewerCommentId for cleanup.",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{editorAccessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"body\":\"RBAC reviewer test comment — deleted in cleanup\"}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/collab/Woodlands/comments",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "collab",
+                "Woodlands",
+                "comments"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get('editorAccessToken') && !pm.variables.get('editorAccessToken')) {",
+                  "  pm.execution.skipRequest();",
+                  "}"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Reviewer can post comment — 201', function() { pm.response.to.have.status(201); });",
+                  "const json = pm.response.json();",
+                  "pm.test('Has comment with id', function() { pm.expect(json.comment).to.have.property('id'); });",
+                  "if (json.comment && json.comment.id) pm.environment.set('reviewerCommentId', json.comment.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "[Reviewer] Can list milestones — expect 200",
+          "description": "GET /collab/:name/milestones uses requireModelRole([owner, editor, reviewer, viewer]) — reviewer passes.",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{editorAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/collab/Woodlands/milestones",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "collab",
+                "Woodlands",
+                "milestones"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get('editorAccessToken') && !pm.variables.get('editorAccessToken')) {",
+                  "  pm.execution.skipRequest();",
+                  "}"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Reviewer can list milestones — 200', function() { pm.response.to.have.status(200); });",
+                  "pm.test('Has milestones array', function() { pm.expect(pm.response.json()).to.have.property('milestones').that.is.an('array'); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "[Reviewer] Cannot create milestone — expect 403",
+          "description": "POST /collab/:name/milestones uses requireModelRole([owner, editor]) — reviewer is NOT in this list. 403 from model-role check.",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{editorAccessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"label\":\"Reviewer milestone attempt — should fail\"}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/collab/Woodlands/milestones",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "collab",
+                "Woodlands",
+                "milestones"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get('editorAccessToken') && !pm.variables.get('editorAccessToken')) {",
+                  "  pm.execution.skipRequest();",
+                  "}"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Reviewer cannot create milestone (editor+ model role required) — 403', function() { pm.response.to.have.status(403); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "[Reviewer] Cannot save model — expect 403",
+          "description": "POST /models/save uses requireModelRole([editor]). Reviewer model role is NOT editor — 403 from model-role check even though global Editor role passes the first requireRole guard.",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{editorAccessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"stm_name\":\"Woodlands\",\"version\":\"1.0\",\"states\":[],\"transitions\":[]}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/models/save",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "models",
+                "save"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get('editorAccessToken') && !pm.variables.get('editorAccessToken')) {",
+                  "  pm.execution.skipRequest();",
+                  "}"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Reviewer model role cannot save model (editor model role required) — 403', function() { pm.response.to.have.status(403); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "[Reviewer] Cannot review-lock model — expect 403",
+          "description": "POST /models/:name/review-lock uses requireAdmin (global Admin only). Global Editor role is blocked regardless of model role.",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{editorAccessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"reason\":\"Reviewer lock attempt — should fail\"}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/models/Woodlands/review-lock",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "models",
+                "Woodlands",
+                "review-lock"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get('editorAccessToken') && !pm.variables.get('editorAccessToken')) {",
+                  "  pm.execution.skipRequest();",
+                  "}"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Reviewer cannot review-lock model (Admin global role required) — 403', function() { pm.response.to.have.status(403); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "[Reviewer] Cannot access admin endpoint — expect 403",
+          "description": "GET /api/admin/stats uses requireAdmin. Global Editor role is blocked — only global Admin passes.",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{editorAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/stats",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "stats"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get('editorAccessToken') && !pm.variables.get('editorAccessToken')) {",
+                  "  pm.execution.skipRequest();",
+                  "}"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Editor/Reviewer cannot access admin endpoint — 403', function() { pm.response.to.have.status(403); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "[Viewer] Can get model — expect 200",
+          "description": "Viewer user (global Viewer + viewer model role on Woodlands). GET /models/:name: requireRole([Admin, Editor, Viewer]) passes (global Viewer ✓), requireModelRole([viewer, editor, reviewer]) passes (viewer model role ✓).",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{viewerAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/models/Woodlands",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "models",
+                "Woodlands"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get('viewerAccessToken') && !pm.variables.get('viewerAccessToken')) {",
+                  "  pm.execution.skipRequest();",
+                  "}"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Viewer can get model — 200', function() { pm.response.to.have.status(200); });",
+                  "pm.test('Has stm_name', function() { pm.expect(pm.response.json()).to.have.property('stm_name'); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "[Viewer] Can get comments — expect 200",
+          "description": "GET /collab/:name/comments uses requireModelRole([owner, editor, reviewer, viewer]) — viewer model role passes.",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{viewerAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/collab/Woodlands/comments",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "collab",
+                "Woodlands",
+                "comments"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get('viewerAccessToken') && !pm.variables.get('viewerAccessToken')) {",
+                  "  pm.execution.skipRequest();",
+                  "}"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Viewer can get comments — 200', function() { pm.response.to.have.status(200); });",
+                  "pm.test('Has comments array', function() { pm.expect(pm.response.json()).to.have.property('comments').that.is.an('array'); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "[Viewer] Can list milestones — expect 200",
+          "description": "GET /collab/:name/milestones uses requireModelRole([owner, editor, reviewer, viewer]) — viewer model role passes.",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{viewerAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/collab/Woodlands/milestones",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "collab",
+                "Woodlands",
+                "milestones"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get('viewerAccessToken') && !pm.variables.get('viewerAccessToken')) {",
+                  "  pm.execution.skipRequest();",
+                  "}"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Viewer can list milestones — 200', function() { pm.response.to.have.status(200); });",
+                  "pm.test('Has milestones array', function() { pm.expect(pm.response.json()).to.have.property('milestones').that.is.an('array'); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "[Viewer] Cannot post comment — expect 403",
+          "description": "POST /collab/:name/comments uses requireModelRole([owner, editor, reviewer]) — viewer model role is NOT in this list. 403 from model-role check.",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{viewerAccessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"body\":\"Viewer comment attempt — should fail\"}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/collab/Woodlands/comments",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "collab",
+                "Woodlands",
+                "comments"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get('viewerAccessToken') && !pm.variables.get('viewerAccessToken')) {",
+                  "  pm.execution.skipRequest();",
+                  "}"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Viewer cannot post comment (reviewer+ model role required) — 403', function() { pm.response.to.have.status(403); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "[Viewer] Cannot create milestone — expect 403",
+          "description": "POST /collab/:name/milestones uses requireModelRole([owner, editor]) — viewer model role is NOT included. 403 from model-role check.",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{viewerAccessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"label\":\"Viewer milestone attempt — should fail\"}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/collab/Woodlands/milestones",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "collab",
+                "Woodlands",
+                "milestones"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get('viewerAccessToken') && !pm.variables.get('viewerAccessToken')) {",
+                  "  pm.execution.skipRequest();",
+                  "}"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Viewer cannot create milestone (editor+ model role required) — 403', function() { pm.response.to.have.status(403); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "[Viewer] Cannot save model — expect 403",
+          "description": "POST /models/save uses requireRole([Admin, Editor]) at global level. Global Viewer is blocked before even reaching the model-role check.",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{viewerAccessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"stm_name\":\"Woodlands\",\"version\":\"1.0\",\"states\":[],\"transitions\":[]}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/models/save",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "models",
+                "save"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get('viewerAccessToken') && !pm.variables.get('viewerAccessToken')) {",
+                  "  pm.execution.skipRequest();",
+                  "}"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Viewer cannot save model (Editor global role required) — 403', function() { pm.response.to.have.status(403); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "[Viewer] Cannot access admin endpoint — expect 403",
+          "description": "GET /api/admin/stats uses requireAdmin. Global Viewer is blocked — only global Admin passes.",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{viewerAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/stats",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "stats"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get('viewerAccessToken') && !pm.variables.get('viewerAccessToken')) {",
+                  "  pm.execution.skipRequest();",
+                  "}"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Viewer cannot access admin endpoint — 403', function() { pm.response.to.have.status(403); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "[Cleanup] Delete reviewer's RBAC comment",
+          "description": "Admin deletes the comment posted by the reviewer user during RBAC tests. SKIPPED when reviewerCommentId is not set.",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/collab/Woodlands/comments/{{reviewerCommentId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "collab",
+                "Woodlands",
+                "comments",
+                "{{reviewerCommentId}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get('reviewerCommentId') && !pm.variables.get('reviewerCommentId')) {",
+                  "  pm.execution.skipRequest();",
+                  "}"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Reviewer comment deleted by admin — 200', function() { pm.response.to.have.status(200); });",
+                  "pm.environment.unset('reviewerCommentId');"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "[Cleanup] Delete admin's RBAC comment",
+          "description": "Deletes the comment created in [Admin] Can post comment. SKIPPED when rbacCommentId is not set.",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/collab/Woodlands/comments/{{rbacCommentId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "collab",
+                "Woodlands",
+                "comments",
+                "{{rbacCommentId}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get('rbacCommentId') && !pm.variables.get('rbacCommentId')) {",
+                  "  pm.execution.skipRequest();",
+                  "}"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Admin RBAC comment deleted — 200', function() { pm.response.to.have.status(200); });",
+                  "pm.environment.unset('rbacCommentId');"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "[Cleanup] Revoke editor's reviewer model role",
+          "description": "Removes the reviewer model role granted in [Setup]. Leaves DB clean after the test run. Skipped when editorAccessToken is not set.",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/models/Woodlands/permissions/{{editorEmail}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "models",
+                "Woodlands",
+                "permissions",
+                "{{editorEmail}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get('editorAccessToken') && !pm.variables.get('editorAccessToken')) {",
+                  "  pm.execution.skipRequest();",
+                  "}"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Editor reviewer model role revoked — 200', function() { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "[Cleanup] Revoke viewer's viewer model role",
+          "description": "Removes the viewer model role granted in [Setup]. Leaves DB clean after the test run. Skipped when viewerAccessToken is not set.",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/models/Woodlands/permissions/{{viewerEmail}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "models",
+                "Woodlands",
+                "permissions",
+                "{{viewerEmail}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get('viewerAccessToken') && !pm.variables.get('viewerAccessToken')) {",
+                  "  pm.execution.skipRequest();",
+                  "}"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Viewer viewer model role revoked — 200', function() { pm.response.to.have.status(200); });"
                 ]
               }
             }

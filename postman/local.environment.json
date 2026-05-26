@@ -9,13 +9,18 @@
     { "key": "viewerEmail", "value": "viewer@example.com", "enabled": true },
     { "key": "viewerPassword", "value": "Password1!", "enabled": true },
     { "key": "accessToken", "value": "", "enabled": true },
-    { "key": "refreshToken", "value": "", "enabled": true },
     { "key": "editorAccessToken", "value": "", "enabled": true },
     { "key": "viewerAccessToken", "value": "", "enabled": true },
+    { "key": "verificationToken", "value": "", "enabled": true, "description": "Copy from the verification email link (?token=...) before running Verify Email" },
     { "key": "testModelId", "value": "", "enabled": true },
     { "key": "testModelName", "value": "Woodlands", "enabled": true },
+    { "key": "testNewModelName", "value": "Test Model - Postman", "enabled": true },
     { "key": "testUserId", "value": "", "enabled": true },
     { "key": "testCommentId", "value": "", "enabled": true },
-    { "key": "testLockId", "value": "", "enabled": true }
+    { "key": "testLockId", "value": "", "enabled": true },
+    { "key": "testMilestoneId", "value": "", "enabled": true },
+    { "key": "testStateId", "value": "", "enabled": true, "description": "Set from GET /models/:name response — states[n].state_id" },
+    { "key": "testTransitionId", "value": "", "enabled": true, "description": "Set from GET /models/:name response — transitions[n].id" },
+    { "key": "testDeleteUserId", "value": "", "enabled": true, "description": "A non-admin user ID for Delete User / Revoke Sessions tests" }
   ]
 }
