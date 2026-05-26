@@ -95,6 +95,7 @@ app.use('/collab', collabRoutes);
 app.use('/notifications', notificationsRoutes);
 app.use('/api/admin', requireAuth, requireAdmin, adminRoutes);
 app.get("/openapi.json", (_req, res) => res.json(swaggerSpec));
+app.get("/health", (_req, res) => res.status(200).json({ status: "ok" }));
 
 // Error handling middleware
 app.use(errorHandler);

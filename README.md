@@ -59,7 +59,7 @@ TERN Backend powers a web application where ecologists, researchers, and land ma
 
 | Layer | Technology |
 |---|---|
-| Runtime | Node.js 20+ |
+| Runtime | Node.js 22+ |
 | Language | TypeScript 5.9 |
 | Framework | Express 5 |
 | Database | PostgreSQL 16 with PostGIS |
@@ -97,7 +97,7 @@ tests/
 ## Getting Started
 
 ### Prerequisites
-- Node.js 20+
+- Node.js 22+
 - PostgreSQL 16 with PostGIS (local) **or** Docker + Docker Compose (recommended)
 
 ### Install
@@ -119,7 +119,7 @@ Every variable the app reads is documented in `.env.example`. The table below is
 |---|---|---|---|
 | `PORT` | Optional | `3000` | Server port (defaults to 3000) |
 | `NODE_ENV` | Required | `development` | `development`, `production`, or `test` |
-| `DATABASE_URL` | Required | `postgres://user:pass@localhost:5432/tern_db` | Full PostgreSQL connection string |
+| `DATABASE_URL` | Required | `postgres://user:pass@localhost:5432/tern_db` | Full PostgreSQL connection string. **When running via Docker Compose this is automatically overridden to point at the `db` service — no manual change needed.** |
 | `PG_HOST` | Dev/Docker | `localhost` | Used by migrations and docker-compose |
 | `PG_PORT` | Dev/Docker | `5432` | PostgreSQL port |
 | `PG_USER` | Dev/Docker | `postgres` | PostgreSQL username |
@@ -159,8 +159,56 @@ npm start         # Production (requires npm run build first)
 ```
 
 ### Run with Docker
+
+The Compose file defines four services with two optional profiles:
+
+| Service | Profile | Purpose |
+|---|---|---|
+| `db` | *(always)* | PostGIS 16 database |
+| `app` | *(always)* | Dev server with hot-reload (nodemon + ts-node) |
+| `migrate` | `migrate` | Runs all pending migrations then exits |
+| `production` | `production` | Compiled production image with tini + non-root user |
+
+> **DATABASE_URL is wired automatically.** Docker Compose overrides it to point at the `db` service so your `.env` file (which uses `localhost`) does not need to change.
+> The database is exposed on host port `5433` (not `5432`) to avoid conflicts with any local PostgreSQL installation. Use `localhost:5433` in external tools such as TablePlus or psql.
+
+**Development stack (default)**
+
 ```bash
-docker compose up -d --build
+# First run — start db + app, then apply migrations
+docker compose up --build
+docker compose --profile migrate up migrate   # separate terminal, or:
+
+# Or start everything in one command (migrations run then exit automatically)
+docker compose --profile migrate up --build
+```
+
+**Subsequent runs** (data already in the volume, migrations already applied):
+
+```bash
+docker compose up
+```
+
+**Reset to a clean slate:**
+
+```bash
+docker compose down -v --remove-orphans   # removes containers, network, and the data volume
+docker compose --profile migrate up --build
+```
+
+**Production image** (compiled, non-root, healthcheck enabled):
+
+```bash
+docker compose --profile production up --build
+```
+
+Verify the container is healthy after ~20 seconds:
+
+```bash
+docker inspect $(docker compose ps -q production) --format '{{.State.Health.Status}}'
+# → healthy
+curl http://localhost:3000/health
+# → {"status":"ok"}
 ```
 
 ### API Documentation
@@ -198,6 +246,18 @@ A quick-start guide for the next maintainer.
 
 ### Run locally
 
+**With Docker (recommended — no local PostgreSQL needed):**
+
+```bash
+git clone <this-repo> && cd tern_backend
+cp .env.example .env      # fill in PG_*, JWT_SECRET, BCRYPT_PEPPER, FRONTEND_URL
+docker compose --profile migrate up --build   # starts db, runs migrations, starts dev server
+```
+
+The server starts at `http://localhost:3000`. Swagger UI at `http://localhost:3000/docs`.
+
+**Without Docker:**
+
 ```bash
 git clone <this-repo> && cd tern_backend
 npm install
@@ -205,8 +265,6 @@ cp .env.example .env      # fill in DATABASE_URL, PG_*, JWT_SECRET, BCRYPT_PEPPE
 npm run migrate:up         # apply all DB migrations
 npm run dev                # server at http://localhost:3000
 ```
-
-The Swagger UI at `http://localhost:3000/docs` maps every endpoint interactively.
 
 ### Deploy
 
@@ -233,6 +291,9 @@ To deploy to a new app:
 |---|---|
 | Env vars (local) | `.env` |
 | Env vars (production) | DigitalOcean App Platform dashboard |
+| Docker build stages | `Dockerfile` |
+| Docker services / profiles | `docker-compose.yml` |
+| Docker build exclusions | `.dockerignore` |
 | Database pool | `src/config/database.ts` |
 | Env validation | `src/config/env.ts` |
 | CORS origins | `src/app.ts` — `allowedOrigins` set |

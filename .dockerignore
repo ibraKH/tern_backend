@@ -1,9 +1,12 @@
 node_modules
-dist
-coverage
 .git
+dist
 .env
-.gitignore
-npm-debug.log*
-Dockerfile.*
+.env.*
 *.log
+coverage
+results
+.eslintcache
+docs
+README.md
+.github
