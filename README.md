@@ -229,8 +229,7 @@ npm run test:api      # Newman end-to-end API tests (requires running server)
 
 ## Related Repositories
 
-- Frontend: [FRONTEND_REPO_URL]
-- Handover documentation (Confluence): [CONFLUENCE_URL]
+- Frontend: [stm_creator-frontend](https://github.com/Chou-Haoran/stm_creator-frontend)
 
 ---
 
@@ -249,7 +248,7 @@ A quick-start guide for the next maintainer.
 **With Docker (recommended — no local PostgreSQL needed):**
 
 ```bash
-git clone <this-repo> && cd tern_backend
+git clone https://github.com/ibraKH/tern_backend && cd tern_backend
 cp .env.example .env      # fill in PG_*, JWT_SECRET, BCRYPT_PEPPER, FRONTEND_URL
 docker compose --profile migrate up --build   # starts db, runs migrations, starts dev server
 ```
@@ -259,7 +258,7 @@ The server starts at `http://localhost:3000`. Swagger UI at `http://localhost:30
 **Without Docker:**
 
 ```bash
-git clone <this-repo> && cd tern_backend
+git clone https://github.com/ibraKH/tern_backend && cd tern_backend
 npm install
 cp .env.example .env      # fill in DATABASE_URL, PG_*, JWT_SECRET, BCRYPT_PEPPER, FRONTEND_URL
 npm run migrate:up         # apply all DB migrations
@@ -303,4 +302,4 @@ To deploy to a new app:
 
 ### Contact and IP
 
-This project was developed as a TechLauncher graduation project at the **Australian National University (ANU)**. Project IP belongs to ANU under the TechLauncher program. For contacts, see the Confluence handover page at `[CONFLUENCE_URL]`.
+This project was developed as a TechLauncher graduation project at the **Australian National University (ANU)**. Project IP belongs to ANU under the TechLauncher program.
