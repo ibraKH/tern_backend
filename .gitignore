@@ -10,6 +10,10 @@ build/
 .env.local
 .env.*.local
 .env.docker
+.env.production
+.env.staging
+.env.test
+*.env
 
 # Logs
 npm-debug.log*
@@ -37,3 +41,14 @@ results/
 
 # Optional: Docker
 docker-data/
+
+# Local database files
+*.sqlite
+*.sqlite3
+*.db
+
+# Credential / key files
+*.pem
+*.key
+*.p12
+*.pfx
