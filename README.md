@@ -97,8 +97,8 @@ tests/
 ## Getting Started
 
 ### Prerequisites
-- Node.js 18+
-- PostgreSQL (local) **or** Docker + Docker Compose
+- Node.js 20+
+- PostgreSQL 16 with PostGIS (local) **or** Docker + Docker Compose (recommended)
 
 ### Install
 ```bash
@@ -106,22 +106,56 @@ npm install
 ```
 
 ### Environment
-Create a `.env` file in the project root:
-```env
-PORT=3000
-NODE_ENV=development
-JWT_SECRET=your_secret_key
-JWT_EXPIRES=1d
-BCRYPT_SALT_ROUNDS=12
-BCRYPT_PEPPER=your_pepper
-DATABASE_URL=postgres://user:password@localhost:5432/tern_db
+
+Copy `.env.example` to `.env` and fill in the values:
+
+```bash
+cp .env.example .env
 ```
+
+Every variable the app reads is documented in `.env.example`. The table below is the quick reference:
+
+| Variable | Required | Example | Description |
+|---|---|---|---|
+| `PORT` | Optional | `3000` | Server port (defaults to 3000) |
+| `NODE_ENV` | Required | `development` | `development`, `production`, or `test` |
+| `DATABASE_URL` | Required | `postgres://user:pass@localhost:5432/tern_db` | Full PostgreSQL connection string |
+| `PG_HOST` | Dev/Docker | `localhost` | Used by migrations and docker-compose |
+| `PG_PORT` | Dev/Docker | `5432` | PostgreSQL port |
+| `PG_USER` | Dev/Docker | `postgres` | PostgreSQL username |
+| `PG_PASSWORD` | Dev/Docker | `changeme` | PostgreSQL password |
+| `PG_DB` | Dev/Docker | `tern` | Database name |
+| `JWT_SECRET` | Required | *(32+ random chars)* | Signs all JWT tokens — changing this invalidates existing tokens |
+| `JWT_EXPIRES` | Required | `1d` | Token lifetime (`1d`, `2h`, `30m`, …) |
+| `JWT_ISSUER` | Optional | `tern-backend` | JWT `iss` claim |
+| `JWT_AUDIENCE` | Optional | `tern-api` | JWT `aud` claim |
+| `BCRYPT_SALT_ROUNDS` | Required | `12` | bcrypt cost (12 for prod, 4 for fast tests) |
+| `BCRYPT_PEPPER` | Required | *(32+ random chars)* | Prepended to passwords before hashing — changing this invalidates existing hashes |
+| `FRONTEND_URL` | Required | `http://localhost:5173` | Used for CORS and 404 redirects |
+| `PRODUCTION_URL` | Optional | `https://your-app.ondigitalocean.app` | Production backend URL for Swagger server list |
+| `GMAIL_USER` | Prod-required | `noreply@example.com` | Gmail address for verification emails |
+| `GMAIL_APP_PASSWORD` | Prod-required | *(Google App Password)* | Gmail App Password — generate at **Google Account → Security → App Passwords** |
+
+> `GMAIL_USER` and `GMAIL_APP_PASSWORD` are only enforced when `NODE_ENV=production`. Email is skipped silently in development.
+
+### Database Setup
+
+Migrations live in `migrations/` and must be applied before the server will start against a fresh database.
+
+```bash
+npm run migrate:up       # apply all pending migrations (dev)
+npm run migrate:up:prod  # apply against production DATABASE_URL
+npm run migrate:status   # check what's applied
+npm run migrate:down     # roll back the most recent migration
+```
+
+Three default STM templates (`Woodlands`, `Grasslands`, `Shrublands`) are seeded automatically by the migrations. See [`docs/MIGRATIONS.md`](docs/MIGRATIONS.md) for the full migration history and rollback warnings.
 
 ### Run Locally
 ```bash
 npm run dev       # Development with hot reload
 npm run build     # Compile TypeScript
-npm start         # Production
+npm start         # Production (requires npm run build first)
 ```
 
 ### Run with Docker
@@ -129,13 +163,83 @@ npm start         # Production
 docker compose up -d --build
 ```
 
+### API Documentation
+
+- **Swagger UI** — `GET /docs` (interactive, auto-generated from route annotations)
+- **OpenAPI JSON** — `GET /openapi.json`
+- **Postman collection** — [`docs/postman/`](docs/postman/) contains a full collection of 81 requests plus local and production environment files. See [`docs/postman/README.md`](docs/postman/README.md) for import instructions.
+
+Additional references: [`docs/API.md`](docs/API.md) (route reference), [`docs/WEBSOCKET.md`](docs/WEBSOCKET.md) (WebSocket events).
+
 ### Run Tests
 ```bash
-npm test
+npm test              # unit + integration tests (Jest)
+npm run test:api      # Newman end-to-end API tests (requires running server)
 ```
+
+---
+
+## Related Repositories
+
+- Frontend: [FRONTEND_REPO_URL]
+- Handover documentation (Confluence): [CONFLUENCE_URL]
 
 ---
 
 ## License
 
-This project is part of an academic graduation project for ecosystem model management.
+[MIT License](LICENSE) — Copyright 2026 Ibrahim Alharthi and the TERN development team.
+
+---
+
+## Taking This Over
+
+A quick-start guide for the next maintainer.
+
+### Run locally
+
+```bash
+git clone <this-repo> && cd tern_backend
+npm install
+cp .env.example .env      # fill in DATABASE_URL, PG_*, JWT_SECRET, BCRYPT_PEPPER, FRONTEND_URL
+npm run migrate:up         # apply all DB migrations
+npm run dev                # server at http://localhost:3000
+```
+
+The Swagger UI at `http://localhost:3000/docs` maps every endpoint interactively.
+
+### Deploy
+
+The backend runs on **DigitalOcean App Platform** connected to a DigitalOcean Managed PostgreSQL database. Deployments are automatic on push to `main`. All secrets are set as environment variables in the App Platform dashboard — never in the repo.
+
+To deploy to a new app:
+1. Create an App Platform app pointing at this repo. Build command: `npm run build`. Run command: `node dist/index.js`.
+2. Attach a managed PostgreSQL database; copy the `DATABASE_URL` it provides into the app's env vars.
+3. Set all required environment variables in the App Platform dashboard.
+4. Push to `main` — the platform builds and deploys automatically.
+5. Run migrations: `npm run migrate:up:prod`.
+
+### Add a new endpoint
+
+1. Create a route file in `src/routes/` (copy an existing one as a template).
+2. Mount it in `src/app.ts` with `requireAuth` / `requireAdmin` middleware as needed.
+3. Add a Zod validation schema in `src/validation/`.
+4. Write an integration test in `tests/integration/`.
+5. Add JSDoc `@swagger` annotations — the spec regenerates on next server start.
+
+### Key config locations
+
+| What | Where |
+|---|---|
+| Env vars (local) | `.env` |
+| Env vars (production) | DigitalOcean App Platform dashboard |
+| Database pool | `src/config/database.ts` |
+| Env validation | `src/config/env.ts` |
+| CORS origins | `src/app.ts` — `allowedOrigins` set |
+| Rate limits | `src/middlewares/rateLimit.ts` |
+| Role constants | `src/constants/roles.ts` |
+| Migrations | `migrations/` |
+
+### Contact and IP
+
+This project was developed as a TechLauncher graduation project at the **Australian National University (ANU)**. Project IP belongs to ANU under the TechLauncher program. For contacts, see the Confluence handover page at `[CONFLUENCE_URL]`.
