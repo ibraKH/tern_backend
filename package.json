@@ -18,8 +18,8 @@
     "migrate:up:prod": "node-pg-migrate up -m migrations -f database.json --config-value production",
     "lint": "eslint . --ext .js,.ts --cache",
     "lint:fix": "eslint . --ext .js,.ts --fix --cache",
-    "test:api": "newman run postman/TERN_API.collection.json -e postman/local.environment.json --reporters cli,junit --reporter-junit-export results/newman.xml",
-    "test:api:prod": "newman run postman/TERN_API.collection.json -e postman/production.environment.json --reporters cli,junit --reporter-junit-export results/newman.xml"
+    "test:api": "newman run docs/postman/TERN_API.collection.json -e docs/postman/local.environment.json --reporters cli,junit --reporter-junit-export results/newman.xml",
+    "test:api:prod": "newman run docs/postman/TERN_API.collection.json -e docs/postman/production.environment.json --reporters cli,junit --reporter-junit-export results/newman.xml"
   },
   "keywords": [],
   "author": "",
